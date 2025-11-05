@@ -15,6 +15,22 @@ app.add_middleware(
     allow_methods=["*"],  # Разрешаем все HTTP методы
     allow_headers=["*"],  # Разрешаем все заголовки
 )
+
+@app.get("/")
+def root():
+    """Корневой эндпоинт для проверки работы API"""
+    return {"message": "Exchange API is running", "status": "ok"}
+
+@app.get("/health")
+def health_check():
+    """Проверка здоровья приложения"""
+    try:
+        # Проверяем соединение с базой данных
+        db.admin.command('ping')
+        return {"status": "healthy", "database": "connected"}
+    except Exception as e:
+        return {"status": "unhealthy", "database": "disconnected", "error": str(e)}
+
 @app.post("/cash/init")
 def init_cash():
     """Инициализирует кассу с нулевыми балансами для всех валют"""
@@ -165,9 +181,14 @@ def get_transactions():
 @app.get("/cash/status")
 def get_cash_status():
     """Показать все активы и их балансы"""
-    items = list(db.cash.find({}, {"_id": 0}))
-    total_assets = {item["asset"]: item["balance"] for item in items}
-    return {"cash": total_assets}
+    try:
+        items = list(db.cash.find({}, {"_id": 0}))
+        total_assets = {item["asset"]: item["balance"] for item in items}
+        return {"cash": total_assets}
+    except Exception as e:
+        print(f"Database error in get_cash_status: {e}")
+        # Возвращаем пустые данные при ошибке подключения к БД
+        return {"cash": {}, "error": "Database connection failed", "details": str(e)}
 
 
 @app.get("/cash/profit")
