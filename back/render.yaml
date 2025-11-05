@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: exchange-backend
+    env: python
+    buildCommand: 'cd back && pip install -r requirements.txt'
+    startCommand: 'cd back && uvicorn src.main:app --host 0.0.0.0 --port $PORT'
+    envVars:
+      - key: MONGO_URI
+        value: mongodb+srv://merzavchiq:mQeSBPf3QbvPv355@project1.h4f7xbg.mongodb.net/?appName=Project1
