@@ -6,4 +6,4 @@ services:
     startCommand: 'cd back && uvicorn src.main:app --host 0.0.0.0 --port $PORT'
     envVars:
       - key: MONGO_URI
-        value: mongodb+srv://merzavchiq:mQeSBPf3QbvPv355@project1.h4f7xbg.mongodb.net/?appName=Project1
+        value: mongodb+srv://merzavchiq:mQeSBPf3QbvPv355@project1.h4f7xbg.mongodb.net/?retryWrites=true&w=majority&ssl=true&ssl_cert_reqs=CERT_NONE&appName=Project1
