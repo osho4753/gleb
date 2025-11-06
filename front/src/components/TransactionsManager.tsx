@@ -15,7 +15,7 @@ export function TransactionsManager({
   const [formData, setFormData] = useState({
     type: 'fiat_to_crypto',
     from_asset: 'USD',
-    to_asset: 'BTC',
+    to_asset: 'USDT',
     amount_from: '',
     rate_used: '',
     fee_percent: '1',
@@ -78,12 +78,16 @@ export function TransactionsManager({
             </label>
             <select
               value={formData.type}
-              onChange={(e) =>
+              onChange={(e) => {
+                const newType = e.target.value
                 setFormData({
                   ...formData,
-                  type: e.target.value,
+                  type: newType,
+                  // При crypto_to_fiat автоматически устанавливаем USDT в from_asset
+                  from_asset:
+                    newType === 'crypto_to_fiat' ? 'USDT' : formData.from_asset,
                 })
-              }
+              }}
               className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
             >
               <option value="fiat_to_crypto">Фиат в Крипто</option>

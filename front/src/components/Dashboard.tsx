@@ -9,25 +9,36 @@ type CashStatus = {
 }
 type CashProfit = {
   cashflow_profit_by_currency?: Record<string, number>
+  profits_by_currency?: Record<string, number>
 }
+
 export function Dashboard() {
   const [cashStatus, setCashStatus] = useState<CashStatus>({})
   const [cashProfit, setCashProfit] = useState<CashProfit>({})
+  const [realizedProfit, setRealizedProfit] = useState<CashProfit>({})
   const [loading, setLoading] = useState(false)
   const fetchData = async () => {
     setLoading(true)
     try {
-      const [statusRes, profitRes] = await Promise.all([
+      const [statusRes, cashflowRes, realizedRes] = await Promise.all([
         fetch(`${API_BASE}/cash/status`),
         fetch(`${API_BASE}/cash/cashflow_profit`),
+        fetch(`${API_BASE}/cash/profit`),
       ])
+
       if (statusRes.ok) {
         const statusData = await statusRes.json()
         setCashStatus(statusData)
       }
-      if (profitRes.ok) {
-        const profitData = await profitRes.json()
-        setCashProfit(profitData)
+
+      if (cashflowRes.ok) {
+        const cashflowData = await cashflowRes.json()
+        setCashProfit(cashflowData)
+      }
+
+      if (realizedRes.ok) {
+        const realizedData = await realizedRes.json()
+        setRealizedProfit(realizedData)
       }
     } catch (error) {
       toast.error('Не удалось загрузить данные')
@@ -38,7 +49,7 @@ export function Dashboard() {
   const handleReset = async () => {
     if (!confirm('Вы уверены, что хотите сбросить кассу?')) return
     try {
-      const res = await fetch(`${API_BASE}/cash/reset`, {
+      const res = await fetch(`${API_BASE}/reset-all`, {
         method: 'DELETE',
       })
       if (res.ok) {
@@ -79,7 +90,7 @@ export function Dashboard() {
           </button>
         </div>
       </div>
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="w-full">
           <h3 className="text-lg sm:text-xl font-semibold mb-3">
             Текущее Состояние Кассы
@@ -127,10 +138,15 @@ export function Dashboard() {
             </div>
           </div>
         </div>
+
+        {/* Cashflow Прибыль */}
         <div className="w-full">
-          <h3 className="text-lg sm:text-xl font-semibold mb-3">
-            Прибыль по Валютам
-          </h3>
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-3">
+            <h3 className="text-lg sm:text-xl font-semibold">
+              Cashflow Прибыль
+            </h3>
+          </div>
+
           <div className="border rounded-lg overflow-hidden bg-white shadow-sm">
             <div className="overflow-x-auto">
               <table className="w-full">
@@ -173,7 +189,67 @@ export function Dashboard() {
                         colSpan={2}
                         className="px-3 sm:px-4 py-6 sm:py-8 text-center text-xs sm:text-sm text-gray-500"
                       >
-                        Нет данных о прибыли
+                        Нет данных о cashflow прибыли
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        {/* Реализованная Прибыль */}
+        <div className="w-full">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-3">
+            <h3 className="text-lg sm:text-xl font-semibold">
+              Реализованная Прибыль
+            </h3>
+          </div>
+
+          <div className="border rounded-lg overflow-hidden bg-white shadow-sm">
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-3 sm:px-4 py-3 text-left text-xs sm:text-sm font-medium text-gray-700">
+                      Валюта
+                    </th>
+                    <th className="px-3 sm:px-4 py-3 text-right text-xs sm:text-sm font-medium text-gray-700">
+                      Прибыль
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {realizedProfit.profits_by_currency &&
+                  Object.entries(realizedProfit.profits_by_currency).length >
+                    0 ? (
+                    Object.entries(realizedProfit.profits_by_currency).map(
+                      ([currency, profit]) =>
+                        currency !== '' && (
+                          <tr key={currency} className="hover:bg-gray-50">
+                            <td className="px-3 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm font-medium">
+                              {currency}
+                            </td>
+                            <td
+                              className={`px-3 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm text-right font-medium ${
+                                Number(profit) >= 0
+                                  ? 'text-green-600'
+                                  : 'text-red-600'
+                              }`}
+                            >
+                              {Number(profit).toFixed(2)}
+                            </td>
+                          </tr>
+                        )
+                    )
+                  ) : (
+                    <tr>
+                      <td
+                        colSpan={2}
+                        className="px-3 sm:px-4 py-6 sm:py-8 text-center text-xs sm:text-sm text-gray-500"
+                      >
+                        Нет данных о реализованной прибыли
                       </td>
                     </tr>
                   )}

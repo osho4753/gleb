@@ -4,8 +4,12 @@ from bson import ObjectId
 from .db import db
 from .models import Rate, Transaction, TransactionUpdate, CashDeposit
 from datetime import datetime
+from pydantic import BaseModel
+from decimal import Decimal, ROUND_HALF_UP
+
 
 app = FastAPI(title="Local Exchange Dashboard")
+FIAT_ASSETS = ["CZK", "USD", "EUR"]
 
 # Добавляем CORS middleware
 app.add_middleware(
@@ -59,9 +63,15 @@ def init_cash():
     }
 
 # ---------- RATES ----------
+class CashSetRequest(BaseModel):
+    asset: str
+    amount: float
+
 @app.post("/cash/set")
-def set_cash(asset: str, amount: float):
+def set_cash(request: CashSetRequest):
     """Устанавливает или обновляет баланс конкретной валюты"""
+    asset = request.asset
+    amount = request.amount
     existing = db.cash.find_one({"asset": asset})
     if existing:
         db.cash.update_one(
@@ -165,15 +175,21 @@ def deposit_to_cash(deposit: CashDeposit):
 def create_transaction(tx: Transaction):
     """
     Создание транзакции:
-    - курс вводится вручную (rate_used)
-    - комиссия рассчитывается в зависимости от типа
-    - при CZK логика курса перевёрнута (делим при fiat_to_crypto)
-    - касса обновляется автоматически
+    - активы (crypto): USDT, BTC, ETH и т.д.
+    - товар (fiat): USD, EUR, CZK
+    - при crypto_to_fiat — комиссия ДОПЛАЧИВАЕТСЯ
+    - при fiat_to_crypto — комиссия УДЕРЖИВАЕТСЯ
+    - прибыль считается при замыкании цикла (продажа кэша)
     """
 
-    SPECIAL_FIAT = ["CZK"]  # список валют, где курс считается "в обратную сторону"
+    # Определяем категории активов
 
-    # --- Расчёт суммы с учётом типа и валюты ---
+    SPECIAL_FIAT = ["CZK"]
+
+    # --- Проверки ---
+    if tx.type not in ["fiat_to_crypto", "crypto_to_fiat"]:
+        raise HTTPException(status_code=400, detail="Invalid transaction type")
+
     if tx.type == "fiat_to_crypto" and tx.from_asset in SPECIAL_FIAT:
         # Клиент платит кронами → делим
         tx.amount_to_clean = tx.amount_from / tx.rate_used
@@ -186,28 +202,21 @@ def create_transaction(tx: Transaction):
     else:
         tx.amount_to_clean = tx.amount_from * tx.rate_used
 
-    # --- Расчёт комиссии и прибыли ---
+    # --- Расчёт комиссии ---
     if tx.type == "crypto_to_fiat":
         # Клиент получает фиат → мы доплачиваем комиссию
         tx.fee_amount = tx.amount_to_clean * (tx.fee_percent / 100)
         tx.amount_to_final = round(tx.amount_to_clean + tx.fee_amount)  # округляем до целого
-        tx.profit = round(-tx.fee_amount)  # убыток, округляем до целого
+        tx.profit = round(-tx.fee_amount) 
         fee_direction = "added"
 
     elif tx.type == "fiat_to_crypto":
         # Клиент платит фиат → мы удерживаем комиссию
         tx.amount_to_final = round(tx.amount_to_clean / (1 + (tx.fee_percent / 100)))  # округляем до целого
         tx.fee_amount = tx.amount_to_clean - tx.amount_to_final
-        tx.profit = round(tx.fee_amount)  # прибыль, округляем до целого
+        tx.profit = round(tx.fee_amount)  
         fee_direction = "deducted"
 
-    else:
-        tx.fee_amount = 0
-        tx.amount_to_final = round(tx.amount_to_clean)  # округляем до целого
-        tx.profit = 0
-        fee_direction = "none"
-
-    # --- Проверка и обновление кассы ---
     from_cash = db.cash.find_one({"asset": tx.from_asset})
     to_cash = db.cash.find_one({"asset": tx.to_asset})
 
@@ -219,6 +228,12 @@ def create_transaction(tx: Transaction):
         db.cash.insert_one({"asset": tx.to_asset, "balance": 0.0, "updated_at": datetime.utcnow()})
         to_cash = {"asset": tx.to_asset, "balance": 0.0}
 
+
+    if tx.type == "crypto_to_fiat":
+        tx.profit_currency = tx.to_asset  # клиент получает фиат → прибыль в нём
+    elif tx.type == "fiat_to_crypto":
+        tx.profit_currency = tx.from_asset  # клиент платит фиат → прибыль в нём
+    
     if tx.type == "fiat_to_crypto":
         # клиент отдаёт фиат, получает крипту
         # проверяем, достаточно ли крипты (to_asset), чтобы выдать клиенту
@@ -234,9 +249,56 @@ def create_transaction(tx: Transaction):
             raise HTTPException(status_code=400, detail=f"Not enough {tx.to_asset} in cash")
         db.cash.update_one({"asset": tx.to_asset}, {"$inc": {"balance": -tx.amount_to_final}})
         db.cash.update_one({"asset": tx.from_asset}, {"$inc": {"balance": tx.amount_from}})
- 
-    # --- Сохранение транзакции ---
-    db.transactions.insert_one(tx.dict())
+    # --- Подсчёт реализованной прибыли ---
+    realized_profit = 0.0
+
+    if tx.type == "crypto_to_fiat" and tx.from_asset == "USDT" and tx.to_asset in FIAT_ASSETS:
+        amount_sold_usdt = Decimal(str(tx.amount_from))
+        sell_rate = Decimal(str(tx.rate_used))
+        sell_fee = Decimal(str(tx.fee_percent))
+
+        # Получаем все покупки кэша (fiat_to_crypto)
+        buys = list(db.transactions.find({
+            "type": "fiat_to_crypto",
+            "to_asset": "USDT"
+        }).sort("created_at", 1))
+
+        remaining_to_sell = amount_sold_usdt
+        profit = Decimal("0.0")
+
+        for b in buys:
+            if remaining_to_sell <= 0:
+                break
+
+            buy_remaining = Decimal(str(b.get("remaining", b["amount_to_final"])))
+            if buy_remaining <= 0:
+                continue
+
+            used_amount = min(buy_remaining, remaining_to_sell)
+            buy_rate = Decimal(str(b["rate_used"]))
+            buy_fee = Decimal(str(b["fee_percent"]))
+
+            # --- считаем эффективные курсы с учётом комиссий ---
+            buy_rate_with_fee = buy_rate * (1 + buy_fee / 100)
+            sell_rate_with_fee = sell_rate * (1 + sell_fee / 100)
+
+            # Твоя логика: товар — это крона → прибыль = разница в курсах
+            profit += (buy_rate_with_fee - sell_rate_with_fee) * used_amount
+
+            # обновляем остаток
+            b["remaining"] = (buy_remaining - used_amount)
+            remaining_to_sell -= used_amount
+
+        realized_profit = profit.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+    tx.profit = float(realized_profit)
+
+    tx_data = tx.dict()
+    tx_data["created_at"] = datetime.utcnow()
+    tx_data["is_modified"] = False
+    tx_data["realized_profit"] = float(realized_profit)
+
+    db.transactions.insert_one(tx_data)
 
     return {
         "type": tx.type,
@@ -248,9 +310,30 @@ def create_transaction(tx: Transaction):
         "fee_percent": tx.fee_percent,
         "fee_amount": tx.fee_amount,
         "amount_to_final": tx.amount_to_final,
-        "profit": tx.profit,
+        "profit": realized_profit,
         "fee_direction": fee_direction,
         "message": "Transaction processed successfully"
+    }
+
+@app.get("/cash/profit")
+def get_total_profit():
+    """
+    Возвращает суммарную реализованную прибыль, сгруппированную по валюте прибыли.
+    """
+    pipeline = [
+        {"$group": {"_id": "$profit_currency", "total_realized_profit": {"$sum": "$realized_profit"}}}
+    ]
+    results = list(db.transactions.aggregate(pipeline))
+
+    profits = {
+        r["_id"]: round(r["total_realized_profit"], 2)
+        for r in results
+        if r["_id"] in FIAT_ASSETS
+    }
+
+    return {
+        "profits_by_currency": profits,
+        "message": "Realized profit grouped by profit currency"
     }
 
 @app.get("/transactions")
@@ -389,33 +472,16 @@ def get_cash_status():
         # Возвращаем пустые данные при ошибке подключения к БД
         return {"cash": {}, "error": "Database connection failed", "details": str(e)}
 
-
-@app.get("/cash/profit")
-def get_total_profit():
-    """Возвращает прибыль/убыток по каждой валюте отдельно"""
-    pipeline = [
-        {"$group": {"_id": "$to_asset", "total_profit": {"$sum": "$profit"}}}
-    ]
-    results = list(db.transactions.aggregate(pipeline))
-
-    profits_by_currency = {}
-    for item in results:
-        profits_by_currency[item["_id"]] = round(item["total_profit"], 2)
-
-    return {
-        "profits_by_currency": profits_by_currency,
-        "message": "Profit grouped by currency"
-    }
-
-@app.delete("/cash/reset")
-def reset_cash():
-    """Полностью очищает кассу — все валюты и балансы"""
+@app.delete("/reset-all")
+def reset_cash_delete():
+    """Полностью очищает кассу — все валюты и балансы (DELETE метод)"""
     result = db.cash.delete_many({})
     return {
         "message": "Cash register has been reset",
         "deleted_count": result.deleted_count
     }
-@app.delete("/transactions/reset")
+
+@app.delete("/reset-all-transactions")
 def reset_transactions():
     """Полностью очищает коллекцию транзакций"""
     result = db.transactions.delete_many({})

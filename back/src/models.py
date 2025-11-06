@@ -19,6 +19,7 @@ class Transaction(BaseModel):
     fee_amount: Optional[float] = None
     amount_to_final: Optional[float] = None
     profit: Optional[float] = None
+    profit_currency : Optional[str] = None
     note: Optional[str] = ""      # Поле для пометок к транзакции
     is_modified: Optional[bool] = False  # Флаг изменения транзакции
     modified_at: Optional[datetime] = None  # Время последнего изменения

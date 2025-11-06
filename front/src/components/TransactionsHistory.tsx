@@ -20,6 +20,7 @@ type Transaction = {
   is_modified?: boolean
   amount_to_final: number
   profit: number
+  profit_currency: string
 }
 
 // Компонент для редактирования транзакции
@@ -268,7 +269,7 @@ export function TransactionsHistory() {
   const [dateFilter, setDateFilter] = useState({ from: '', to: '' })
   const [currencyFilter, setCurrencyFilter] = useState('')
 
-  const currencies = ['USD', 'USDT', 'EUR', 'CZK', 'BTC', 'ETH', 'CRON']
+  const currencies = ['USD', 'USDT', 'EUR', 'CZK']
 
   const fetchTransactions = async () => {
     setLoading(true)
@@ -369,7 +370,7 @@ export function TransactionsHistory() {
       return
 
     try {
-      const res = await fetch(`${API_BASE}/transactions/reset`, {
+      const res = await fetch(`${API_BASE}/reset-all-transactions`, {
         method: 'DELETE',
       })
 
@@ -507,7 +508,6 @@ export function TransactionsHistory() {
       hour: '2-digit',
       minute: '2-digit',
     })
-
     return (
       <div className="border border-gray-200 p-4 rounded-lg shadow-sm bg-white space-y-2 text-sm">
         <div className="flex justify-between items-start">
@@ -562,7 +562,7 @@ export function TransactionsHistory() {
           <div className="text-gray-600">
             <span className="font-medium">Прибыль:</span>{' '}
             <span className={profitColor + ' font-bold'}>
-              {tx.profit.toFixed(2)}
+              {tx.profit.toFixed(2)} {tx.profit_currency}
             </span>
           </div>
         )}
@@ -843,7 +843,8 @@ export function TransactionsHistory() {
                           : 'text-red-600'
                       }`}
                     >
-                      {tx.type === 'deposit' ? '-' : tx.profit?.toFixed(2)}
+                      {tx.type === 'deposit' ? '-' : tx.profit?.toFixed(2)}{' '}
+                      {tx.profit_currency}
                     </td>
                     <td className="px-4 py-3 text-sm max-w-xs">
                       <div className="truncate" title={tx.note || ''}>
