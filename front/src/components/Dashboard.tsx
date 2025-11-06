@@ -149,22 +149,23 @@ export function Dashboard() {
                   Object.entries(cashProfit.cashflow_profit_by_currency)
                     .length > 0 ? (
                     Object.entries(cashProfit.cashflow_profit_by_currency).map(
-                      ([currency, profit]) => (
-                        <tr key={currency} className="hover:bg-gray-50">
-                          <td className="px-3 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm font-medium">
-                            {currency}
-                          </td>
-                          <td
-                            className={`px-3 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm text-right font-medium ${
-                              Number(profit) >= 0
-                                ? 'text-green-600'
-                                : 'text-red-600'
-                            }`}
-                          >
-                            {Number(profit).toFixed(2)}
-                          </td>
-                        </tr>
-                      )
+                      ([currency, profit]) =>
+                        currency !== '' && (
+                          <tr key={currency} className="hover:bg-gray-50">
+                            <td className="px-3 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm font-medium">
+                              {currency}
+                            </td>
+                            <td
+                              className={`px-3 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm text-right font-medium ${
+                                Number(profit) >= 0
+                                  ? 'text-green-600'
+                                  : 'text-red-600'
+                              }`}
+                            >
+                              {Number(profit).toFixed(2)}
+                            </td>
+                          </tr>
+                        )
                     )
                   ) : (
                     <tr>

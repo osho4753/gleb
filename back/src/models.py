@@ -33,3 +33,9 @@ class TransactionUpdate(BaseModel):
     fee_percent: Optional[float] = None
     note: Optional[str] = None
     created_at: Optional[datetime] = None
+
+class CashDeposit(BaseModel):
+    asset: str
+    amount: float = Field(gt=0, description="Amount must be positive")
+    note: Optional[str] = ""
+    created_at: Optional[datetime] = Field(default_factory=datetime.utcnow)

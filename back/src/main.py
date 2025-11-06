@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException,Query
 from fastapi.middleware.cors import CORSMiddleware
 from bson import ObjectId
 from .db import db
-from .models import Rate, Transaction, TransactionUpdate
+from .models import Rate, Transaction, TransactionUpdate, CashDeposit
 from datetime import datetime
 
 app = FastAPI(title="Local Exchange Dashboard")
@@ -101,6 +101,63 @@ def delete_cash_asset(asset: str):
         return {"message": f"Asset {asset} removed from cash"}
     else:
         raise HTTPException(status_code=500, detail=f"Failed to remove {asset} from cash")
+
+@app.post("/cash/deposit")
+def deposit_to_cash(deposit: CashDeposit):
+    """Пополнение кассы с сохранением как транзакции"""
+    
+    # Проверяем/создаем актив в кассе
+    existing = db.cash.find_one({"asset": deposit.asset})
+    if not existing:
+        # Создаем новый актив с нулевым балансом
+        db.cash.insert_one({
+            "asset": deposit.asset,
+            "balance": 0.0,
+            "updated_at": datetime.utcnow()
+        })
+        old_balance = 0.0
+    else:
+        old_balance = existing["balance"]
+    
+    new_balance = old_balance + deposit.amount
+    
+    # Обновляем баланс в кассе
+    db.cash.update_one(
+        {"asset": deposit.asset},
+        {"$set": {"balance": new_balance, "updated_at": datetime.utcnow()}}
+    )
+    
+    # Создаем транзакцию пополнения для истории транзакций
+    deposit_transaction = {
+        "type": "deposit",  # новый тип транзакции
+        "from_asset": deposit.asset,
+        "to_asset": "",  # пустое значение для пополнения
+        "amount_from": deposit.amount,  # сумма пополнения
+        "amount_to_clean": 0,  # не применимо
+        "amount_to_final": 0,  # не применимо  
+        "rate_used": 0,  # не применимо для пополнения
+        "fee_percent": 0,  # нет комиссии
+        "fee_amount": 0,  # нет комиссии
+        "profit": 0,  # нет прибыли
+        "note": deposit.note or "",
+        "created_at": deposit.created_at,
+        "is_modified": False
+    }
+    
+    # Сохраняем в коллекцию транзакций
+    transaction_result = db.transactions.insert_one(deposit_transaction)
+    
+    return {
+        "message": f"Deposited {deposit.amount} {deposit.asset} to cash",
+        "asset": deposit.asset,
+        "amount": deposit.amount,
+        "old_balance": old_balance,
+        "new_balance": new_balance,
+        "note": deposit.note,
+        "transaction_id": str(transaction_result.inserted_id)
+    }
+
+
 
 # ---------- TRANSACTIONS ----------
 

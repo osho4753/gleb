@@ -42,6 +42,7 @@ export function App() {
           >
             Транзакции
           </button>
+
           <button
             onClick={() => setActiveTab('history')}
             className={`px-4 py-2 font-medium ${
@@ -61,6 +62,7 @@ export function App() {
               onNavigateToHistory={() => setActiveTab('history')}
             />
           )}
+
           {activeTab === 'history' && <TransactionsHistory />}
         </div>
       </div>

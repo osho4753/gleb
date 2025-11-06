@@ -67,6 +67,8 @@ const Modal = ({
 export function CashManager() {
   const [currency, setCurrency] = useState('USD')
   const [amount, setAmount] = useState('')
+  const [depositNote, setDepositNote] = useState('')
+  const [operationType, setOperationType] = useState<'set' | 'deposit'>('set')
   const [cashStatus, setCashStatus] = useState<CashStatus>({ cash: {} })
   const [loading, setLoading] = useState(false)
 
@@ -157,6 +159,43 @@ export function CashManager() {
     }
   }
 
+  // Handler for deposit (пополнение)
+  const handleDeposit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!amount || isNaN(parseFloat(amount)) || parseFloat(amount) <= 0) {
+      toast.error('Введите корректную сумму пополнения')
+      return
+    }
+    setLoading(true)
+    try {
+      const res = await fetch(`${API_BASE}/cash/deposit`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          asset: currency,
+          amount: parseFloat(amount),
+          note: depositNote,
+        }),
+      })
+      if (res.ok) {
+        const result = await res.json()
+        toast.success(`Касса пополнена: ${result.amount} ${result.asset}`)
+        setAmount('')
+        setDepositNote('')
+        fetchCashStatus()
+      } else {
+        const error = await res.json()
+        toast.error(error.detail || 'Не удалось пополнить кассу')
+      }
+    } catch (error) {
+      toast.error('Ошибка при пополнении кассы')
+    } finally {
+      setLoading(false)
+    }
+  }
+
   // --- Modal Control Functions ---
 
   const handleOpenEditModal = (asset: string, currentAmount: number) => {
@@ -229,12 +268,44 @@ export function CashManager() {
           Управление Кассой
         </h1>
 
-        {/* Section: Set Cash Balance */}
+        {/* Section: Set Cash Balance / Deposit */}
         <div className="bg-white p-6 rounded-xl shadow-lg border border-gray-200">
           <h2 className="text-xl font-bold mb-5 text-gray-800">
-            Установить/Добавить Баланс
+            Управление Балансом
           </h2>
-          <form onSubmit={handleSubmit} className="space-y-4">
+
+          {/* Operation Type Selector */}
+          <div className="mb-4">
+            <div className="flex gap-2 p-1 bg-gray-100 rounded-lg">
+              <button
+                type="button"
+                onClick={() => setOperationType('set')}
+                className={`flex-1 py-2 px-3 text-sm font-medium rounded-md transition-colors ${
+                  operationType === 'set'
+                    ? 'bg-white text-blue-600 shadow-sm'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                Установить Баланс
+              </button>
+              <button
+                type="button"
+                onClick={() => setOperationType('deposit')}
+                className={`flex-1 py-2 px-3 text-sm font-medium rounded-md transition-colors ${
+                  operationType === 'deposit'
+                    ? 'bg-white text-green-600 shadow-sm'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                Пополнить Кассу
+              </button>
+            </div>
+          </div>
+
+          <form
+            onSubmit={operationType === 'set' ? handleSubmit : handleDeposit}
+            className="space-y-4"
+          >
             <div className="grid sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium mb-1 text-gray-700">
@@ -254,24 +325,55 @@ export function CashManager() {
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1 text-gray-700">
-                  Сумма
+                  {operationType === 'set' ? 'Сумма' : 'Сумма пополнения'}
                 </label>
                 <input
                   type="number"
                   step="0.01"
+                  min={operationType === 'deposit' ? '0.01' : undefined}
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
-                  placeholder="Введите сумму"
+                  placeholder={
+                    operationType === 'set'
+                      ? 'Введите сумму'
+                      : 'Введите сумму пополнения'
+                  }
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 transition duration-150 ease-in-out"
                 />
               </div>
             </div>
+
+            {operationType === 'deposit' && (
+              <div>
+                <label className="block text-sm font-medium mb-1 text-gray-700">
+                  Пометка к пополнению
+                </label>
+                <textarea
+                  value={depositNote}
+                  onChange={(e) => setDepositNote(e.target.value)}
+                  placeholder="Введите пометку (необязательно)"
+                  rows={2}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 transition duration-150 ease-in-out"
+                />
+              </div>
+            )}
+
             <button
               type="submit"
               disabled={loading}
-              className="w-full px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg shadow-md hover:bg-blue-700 disabled:bg-blue-400 disabled:cursor-not-allowed transition duration-150 ease-in-out"
+              className={`w-full px-4 py-2 text-white font-semibold rounded-lg shadow-md disabled:opacity-50 disabled:cursor-not-allowed transition duration-150 ease-in-out ${
+                operationType === 'set'
+                  ? 'bg-blue-600 hover:bg-blue-700'
+                  : 'bg-green-600 hover:bg-green-700'
+              }`}
             >
-              {loading ? 'Сохранение...' : 'Сохранить Баланс'}
+              {loading
+                ? operationType === 'set'
+                  ? 'Сохранение...'
+                  : 'Пополнение...'
+                : operationType === 'set'
+                ? 'Сохранить Баланс'
+                : 'Пополнить Кассу'}
             </button>
           </form>
         </div>
