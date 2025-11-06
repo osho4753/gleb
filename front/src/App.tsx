@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { Toaster } from 'sonner'
 import { Dashboard } from './components/Dashboard'
 import { CashManager } from './components/CashManager'
@@ -9,7 +9,7 @@ export function App() {
     <div className="w-full min-h-screen bg-gray-50">
       <Toaster position="top-right" />
       <div className="max-w-7xl mx-auto p-6">
-        <h1 className="text-3xl font-bold mb-6">Exchange Dashboard</h1>
+        <h1 className="text-3xl font-bold mb-6">Панель Обменника</h1>
         <div className="flex gap-2 mb-6 border-b">
           <button
             onClick={() => setActiveTab('dashboard')}
@@ -19,7 +19,7 @@ export function App() {
                 : 'text-gray-600 hover:text-gray-900'
             }`}
           >
-            Dashboard
+            Обзор
           </button>
           <button
             onClick={() => setActiveTab('cash')}
@@ -29,7 +29,7 @@ export function App() {
                 : 'text-gray-600 hover:text-gray-900'
             }`}
           >
-            Cash Management
+            Управление Кассой
           </button>
           <button
             onClick={() => setActiveTab('transactions')}
@@ -39,7 +39,7 @@ export function App() {
                 : 'text-gray-600 hover:text-gray-900'
             }`}
           >
-            Transactions
+            Транзакции
           </button>
         </div>
         <div className="bg-white rounded-lg shadow p-6">

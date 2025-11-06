@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException,Query
 from fastapi.middleware.cors import CORSMiddleware
 from bson import ObjectId
 from .db import db
-from .models import Rate, Transaction
+from .models import Rate, Transaction, TransactionUpdate
 from datetime import datetime
 
 app = FastAPI(title="Local Exchange Dashboard")
@@ -75,6 +75,32 @@ def set_cash(asset: str, amount: float):
             "updated_at": datetime.utcnow()
         })
     return {"message": f"Balance for {asset} set to {amount}"}
+
+@app.put("/cash/{asset}")
+def update_cash_balance(asset: str, amount: float):
+    """Обновляет баланс существующей валюты"""
+    existing = db.cash.find_one({"asset": asset})
+    if not existing:
+        raise HTTPException(status_code=404, detail=f"Asset {asset} not found in cash")
+    
+    db.cash.update_one(
+        {"asset": asset},
+        {"$set": {"balance": amount, "updated_at": datetime.utcnow()}}
+    )
+    return {"message": f"Balance for {asset} updated to {amount}"}
+
+@app.delete("/cash/{asset}")
+def delete_cash_asset(asset: str):
+    """Удаляет валюту из кассы"""
+    existing = db.cash.find_one({"asset": asset})
+    if not existing:
+        raise HTTPException(status_code=404, detail=f"Asset {asset} not found in cash")
+    
+    result = db.cash.delete_one({"asset": asset})
+    if result.deleted_count > 0:
+        return {"message": f"Asset {asset} removed from cash"}
+    else:
+        raise HTTPException(status_code=500, detail=f"Failed to remove {asset} from cash")
 
 # ---------- TRANSACTIONS ----------
 
@@ -176,6 +202,109 @@ def get_transactions():
     for t in txs:
         t["_id"] = str(t["_id"])
     return txs
+
+@app.get("/transactions/{transaction_id}")
+def get_transaction(transaction_id: str):
+    """Получить конкретную транзакцию по ID"""
+    try:
+        tx = db.transactions.find_one({"_id": ObjectId(transaction_id)})
+        if not tx:
+            raise HTTPException(status_code=404, detail="Transaction not found")
+        tx["_id"] = str(tx["_id"])
+        return tx
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid transaction ID: {str(e)}")
+
+@app.put("/transactions/{transaction_id}")
+def update_transaction(transaction_id: str, update_data: TransactionUpdate):
+    """Обновить существующую транзакцию"""
+    try:
+        # Проверяем существование транзакции
+        existing_tx = db.transactions.find_one({"_id": ObjectId(transaction_id)})
+        if not existing_tx:
+            raise HTTPException(status_code=404, detail="Transaction not found")
+        
+        # Подготавливаем данные для обновления
+        update_fields = {}
+        for field, value in update_data.dict(exclude_unset=True).items():
+            if value is not None:
+                update_fields[field] = value
+        
+        # Добавляем метки изменения
+        update_fields["is_modified"] = True
+        update_fields["modified_at"] = datetime.utcnow()
+        
+        # Если изменились критичные поля, пересчитываем транзакцию
+        critical_fields = ["amount_from", "rate_used", "fee_percent", "type"]
+        if any(field in update_fields for field in critical_fields):
+            # Создаем временный объект транзакции для пересчета
+            temp_tx = Transaction(**{**existing_tx, **update_fields})
+            
+            # Пересчитываем (копируем логику из create_transaction)
+            SPECIAL_FIAT = ["CZK"]
+            
+            if temp_tx.type == "fiat_to_crypto" and temp_tx.from_asset in SPECIAL_FIAT:
+                temp_tx.amount_to_clean = temp_tx.amount_from / temp_tx.rate_used
+            elif temp_tx.type == "crypto_to_fiat" and temp_tx.to_asset in SPECIAL_FIAT:
+                temp_tx.amount_to_clean = temp_tx.amount_from * temp_tx.rate_used
+            elif temp_tx.type == "crypto_to_fiat" and temp_tx.to_asset == "EUR":
+                temp_tx.amount_to_clean = temp_tx.amount_from / temp_tx.rate_used
+            else:
+                temp_tx.amount_to_clean = temp_tx.amount_from * temp_tx.rate_used
+            
+            if temp_tx.type == "crypto_to_fiat":
+                temp_tx.fee_amount = temp_tx.amount_to_clean * (temp_tx.fee_percent / 100)
+                temp_tx.amount_to_final = round(temp_tx.amount_to_clean + temp_tx.fee_amount)
+                temp_tx.profit = round(-temp_tx.fee_amount)
+            elif temp_tx.type == "fiat_to_crypto":
+                temp_tx.amount_to_final = round(temp_tx.amount_to_clean / (1 + (temp_tx.fee_percent / 100)))
+                temp_tx.fee_amount = temp_tx.amount_to_clean - temp_tx.amount_to_final
+                temp_tx.profit = round(temp_tx.fee_amount)
+            else:
+                temp_tx.fee_amount = 0
+                temp_tx.amount_to_final = round(temp_tx.amount_to_clean)
+                temp_tx.profit = 0
+            
+            # Добавляем пересчитанные поля в обновление
+            update_fields.update({
+                "amount_to_clean": temp_tx.amount_to_clean,
+                "fee_amount": temp_tx.fee_amount,
+                "amount_to_final": temp_tx.amount_to_final,
+                "profit": temp_tx.profit
+            })
+        
+        # Обновляем транзакцию
+        result = db.transactions.update_one(
+            {"_id": ObjectId(transaction_id)},
+            {"$set": update_fields}
+        )
+        
+        if result.modified_count > 0:
+            updated_tx = db.transactions.find_one({"_id": ObjectId(transaction_id)})
+            updated_tx["_id"] = str(updated_tx["_id"])
+            return {"message": "Transaction updated successfully", "transaction": updated_tx}
+        else:
+            return {"message": "No changes made to transaction"}
+            
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error updating transaction: {str(e)}")
+
+@app.delete("/transactions/{transaction_id}")
+def delete_transaction(transaction_id: str):
+    """Удалить конкретную транзакцию"""
+    try:
+        existing_tx = db.transactions.find_one({"_id": ObjectId(transaction_id)})
+        if not existing_tx:
+            raise HTTPException(status_code=404, detail="Transaction not found")
+        
+        result = db.transactions.delete_one({"_id": ObjectId(transaction_id)})
+        if result.deleted_count > 0:
+            return {"message": "Transaction deleted successfully", "deleted_id": transaction_id}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to delete transaction")
+            
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error deleting transaction: {str(e)}")
 
 
 @app.get("/cash/status")
