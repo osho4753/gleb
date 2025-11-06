@@ -399,6 +399,10 @@ export function TransactionsHistory() {
           aValue = a.amount_to_final || 0
           bValue = b.amount_to_final || 0
           break
+        case 'rate_used':
+          aValue = a.rate_used || 0
+          bValue = b.rate_used || 0
+          break
         case 'profit':
           aValue = a.profit || 0
           bValue = b.profit || 0
@@ -475,6 +479,93 @@ export function TransactionsHistory() {
   const handleEditTransaction = (tx: Transaction) => {
     setEditingTransaction(tx)
     setIsEditModalOpen(true)
+  }
+
+  // Компонент карточки транзакции для мобильных устройств
+  const TransactionCard = ({ tx }: { tx: Transaction }) => {
+    const typeLabel =
+      tx.type === 'fiat_to_crypto' ? 'Фиат в Крипто' : 'Крипто в Фиат'
+    const typeColor =
+      tx.type === 'fiat_to_crypto'
+        ? 'bg-blue-100 text-blue-700'
+        : 'bg-green-100 text-green-700'
+    const profitColor = tx.profit >= 0 ? 'text-green-600' : 'text-red-600'
+    const formattedDate = new Date(tx.created_at).toLocaleString('ru-RU', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+
+    return (
+      <div className="border border-gray-200 p-4 rounded-lg shadow-sm bg-white space-y-2 text-sm">
+        <div className="flex justify-between items-start">
+          <span
+            className={`px-2 py-0.5 text-xs font-semibold rounded ${typeColor}`}
+          >
+            {typeLabel}
+          </span>
+          {tx.is_modified && (
+            <span className="px-1 py-0.5 text-xs rounded bg-orange-100 text-orange-600">
+              изм.
+            </span>
+          )}
+          <div className="flex gap-2">
+            <button
+              onClick={() => handleEditTransaction(tx)}
+              className="p-1 text-blue-500 hover:text-blue-600 rounded-full"
+              title="Редактировать"
+            >
+              <EditIcon size={16} />
+            </button>
+            <button
+              onClick={() => handleDeleteTransaction(tx._id)}
+              className="p-1 text-red-500 hover:text-red-600 rounded-full"
+              title="Удалить"
+            >
+              <TrashIcon size={16} />
+            </button>
+          </div>
+        </div>
+
+        <div className="font-semibold text-lg">
+          {tx.amount_from.toFixed(2)} {tx.from_asset} →{' '}
+          {tx.amount_to_final.toFixed(2)} {tx.to_asset}
+        </div>
+
+        <div className="grid grid-cols-2 gap-2 text-xs text-gray-600">
+          <div>
+            <span className="font-medium">Курс:</span> {tx.rate_used}
+          </div>
+          <div>
+            <span className="font-medium">Комиссия:</span> {tx.fee_percent}%
+          </div>
+        </div>
+
+        <div className="text-gray-600">
+          <span className="font-medium">Прибыль:</span>{' '}
+          <span className={profitColor + ' font-bold'}>
+            {tx.profit.toFixed(2)}
+          </span>
+        </div>
+
+        {tx.note && (
+          <div className="text-xs text-gray-500 truncate" title={tx.note}>
+            <span className="font-medium">Пометка:</span> {tx.note}
+          </div>
+        )}
+
+        <div className="text-xs text-gray-500 pt-1 border-t mt-1 flex justify-between">
+          <div>{formattedDate}</div>
+          {tx.is_modified && (
+            <div className="text-orange-600">
+              Изм: {new Date(tx.modified_at!).toLocaleString('ru-RU')}
+            </div>
+          )}
+        </div>
+      </div>
+    )
   }
 
   useEffect(() => {
@@ -593,8 +684,21 @@ export function TransactionsHistory() {
         </div>
       </div>
 
-      {/* Таблица транзакций */}
-      <div className="border rounded-lg overflow-hidden bg-white">
+      {/* Мобильный вид: Карточки (показываются только на маленьких экранах) */}
+      <div className="md:hidden space-y-3">
+        {getPaginatedTransactions().length > 0 ? (
+          getPaginatedTransactions().map((tx) => (
+            <TransactionCard key={tx._id} tx={tx} />
+          ))
+        ) : (
+          <div className="text-center py-6 text-gray-500">
+            Транзакций пока нет
+          </div>
+        )}
+      </div>
+
+      {/* Десктопный вид: Таблица (скрывается на маленьких экранах) */}
+      <div className="border rounded-lg overflow-hidden bg-white hidden md:block">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[1000px]">
             <thead className="bg-gray-50">
@@ -637,6 +741,13 @@ export function TransactionsHistory() {
                   Сумма К{' '}
                   {sortBy === 'amount_to_final' &&
                     (sortOrder === 'asc' ? '↑' : '↓')}
+                </th>
+                <th
+                  className="px-4 py-3 text-right text-sm font-medium text-gray-700 cursor-pointer hover:bg-gray-100"
+                  onClick={() => handleSort('rate_used')}
+                >
+                  Курс{' '}
+                  {sortBy === 'rate_used' && (sortOrder === 'asc' ? '↑' : '↓')}
                 </th>
                 <th className="px-4 py-3 text-right text-sm font-medium text-gray-700">
                   Комиссия %
@@ -702,6 +813,9 @@ export function TransactionsHistory() {
                       {tx.amount_to_final?.toFixed(2)}
                     </td>
                     <td className="px-4 py-3 text-sm text-right">
+                      {tx.rate_used}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-right">
                       {tx.fee_percent}%
                     </td>
                     <td
@@ -739,7 +853,7 @@ export function TransactionsHistory() {
               ) : (
                 <tr>
                   <td
-                    colSpan={10}
+                    colSpan={11}
                     className="px-4 py-8 text-center text-gray-500"
                   >
                     Транзакций пока нет

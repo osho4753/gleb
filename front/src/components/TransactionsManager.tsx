@@ -12,7 +12,6 @@ export function TransactionsManager({
   onNavigateToHistory,
 }: TransactionsManagerProps) {
   const [loading, setLoading] = useState(false)
-  // Пагинация и сортировка
   const [formData, setFormData] = useState({
     type: 'fiat_to_crypto',
     from_asset: 'USD',
@@ -23,13 +22,6 @@ export function TransactionsManager({
     note: '',
   })
   const currencies = ['USD', 'USDT', 'EUR', 'CZK']
-
-  //... (остальные функции API - handleSubmit, handleResetTransactions, updateTransaction и т.д. - остаются без изменений)
-  // Я оставляю их закомментированными здесь, чтобы не дублировать код, но в финальном компоненте они должны быть.
-
-  // --------------------------------------------------------------------------------------------------------------------
-  // --- НАЧАЛО: Функции, которые должны быть в финальном коде (оставлены как заглушки для краткости) ---
-  // --------------------------------------------------------------------------------------------------------------------
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -71,12 +63,12 @@ export function TransactionsManager({
 
   return (
     <div className="space-y-6 w-full max-w-full px-4 sm:px-6">
-      {/* HEADER: Адаптация заголовка и кнопок */}
+      {/* HEADER: Заголовок */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
         <h2 className="text-xl sm:text-2xl font-bold">Транзакции</h2>
       </div>
 
-      {/* ФОРМА: Адаптация формы */}
+      {/* ФОРМА: Создание транзакции */}
       <div className="bg-gray-50 p-4 sm:p-6 rounded-lg">
         <h3 className="text-lg font-semibold mb-4">Создать Транзакцию</h3>
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -98,7 +90,7 @@ export function TransactionsManager({
               <option value="crypto_to_fiat">Крипто в Фиат</option>
             </select>
           </div>
-          {/* Адаптивная сетка для полей формы: 1 колонка на моб., 2 на десктопе */}
+
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium mb-2">
