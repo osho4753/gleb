@@ -78,7 +78,7 @@ export function CashManager() {
   const [selectedAsset, setSelectedAsset] = useState<SelectedAsset>(null)
   const [editAmount, setEditAmount] = useState('')
 
-  const currencies = ['USD', 'USDT', 'EUR', 'CZK', 'BTC', 'ETH', 'CRON']
+  const currencies = ['USD', 'USDT', 'EUR', 'CZK']
 
   const fetchCashStatus = useCallback(async () => {
     try {

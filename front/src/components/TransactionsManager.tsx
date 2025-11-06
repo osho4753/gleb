@@ -83,9 +83,9 @@ export function TransactionsManager({
                 setFormData({
                   ...formData,
                   type: newType,
-                  // При crypto_to_fiat автоматически устанавливаем USDT в from_asset
-                  from_asset:
-                    newType === 'crypto_to_fiat' ? 'USDT' : formData.from_asset,
+                  // При fiat_to_crypto: USD -> USDT, при crypto_to_fiat: USDT -> USD
+                  from_asset: newType === 'crypto_to_fiat' ? 'USDT' : 'USD',
+                  to_asset: newType === 'crypto_to_fiat' ? 'USD' : 'USDT',
                 })
               }}
               className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"

@@ -142,9 +142,7 @@ export function Dashboard() {
         {/* Cashflow Прибыль */}
         <div className="w-full">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-3">
-            <h3 className="text-lg sm:text-xl font-semibold">
-              Cashflow Прибыль
-            </h3>
+            <h3 className="text-lg sm:text-xl font-semibold">Cashflow</h3>
           </div>
 
           <div className="border rounded-lg overflow-hidden bg-white shadow-sm">
@@ -156,7 +154,7 @@ export function Dashboard() {
                       Валюта
                     </th>
                     <th className="px-3 sm:px-4 py-3 text-right text-xs sm:text-sm font-medium text-gray-700">
-                      Прибыль
+                      Кол-во
                     </th>
                   </tr>
                 </thead>
