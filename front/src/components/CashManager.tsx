@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react'
 import { toast } from 'sonner'
-const API_BASE = 'http://127.0.0.1:8000'
+import { config } from '../config'
+
+const API_BASE = config.apiBaseUrl
 export function CashManager() {
   const [currency, setCurrency] = useState('USD')
   const [amount, setAmount] = useState('')
