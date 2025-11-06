@@ -104,7 +104,7 @@ export function Dashboard() {
                       Валюта
                     </th>
                     <th className="px-3 sm:px-4 py-3 text-right text-xs sm:text-sm font-medium text-gray-700">
-                      Количество
+                      Кол-во
                     </th>
                   </tr>
                 </thead>
