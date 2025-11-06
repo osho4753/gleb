@@ -3,6 +3,7 @@ import { Toaster } from 'sonner'
 import { Dashboard } from './components/Dashboard'
 import { CashManager } from './components/CashManager'
 import { TransactionsManager } from './components/TransactionsManager'
+import { TransactionsHistory } from './components/TransactionsHistory'
 export function App() {
   const [activeTab, setActiveTab] = useState('dashboard')
   return (
@@ -41,11 +42,26 @@ export function App() {
           >
             Транзакции
           </button>
+          <button
+            onClick={() => setActiveTab('history')}
+            className={`px-4 py-2 font-medium ${
+              activeTab === 'history'
+                ? 'border-b-2 border-blue-500 text-blue-600'
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            История
+          </button>
         </div>
         <div className="bg-white rounded-lg shadow p-6">
           {activeTab === 'dashboard' && <Dashboard />}
           {activeTab === 'cash' && <CashManager />}
-          {activeTab === 'transactions' && <TransactionsManager />}
+          {activeTab === 'transactions' && (
+            <TransactionsManager
+              onNavigateToHistory={() => setActiveTab('history')}
+            />
+          )}
+          {activeTab === 'history' && <TransactionsHistory />}
         </div>
       </div>
     </div>
