@@ -2,6 +2,7 @@ services:
   - type: web
     name: exchange-backend
     env: python
+    runtime: python3.10
     buildCommand: 'cd back && pip install -r requirements.txt'
     startCommand: 'cd back && uvicorn src.main:app --host 0.0.0.0 --port $PORT'
     envVars:
