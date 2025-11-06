@@ -219,9 +219,13 @@ def get_transaction(transaction_id: str):
 def update_transaction(transaction_id: str, update_data: TransactionUpdate):
     """Обновить существующую транзакцию"""
     try:
+        print(f"Updating transaction with ID: {transaction_id}")  # Добавляем логирование
+        print(f"Update data: {update_data.dict()}")  # Логируем данные для обновления
+        
         # Проверяем существование транзакции
         existing_tx = db.transactions.find_one({"_id": ObjectId(transaction_id)})
         if not existing_tx:
+            print(f"Transaction not found: {transaction_id}")  # Логируем если не найдена
             raise HTTPException(status_code=404, detail="Transaction not found")
         
         # Подготавливаем данные для обновления
@@ -287,14 +291,20 @@ def update_transaction(transaction_id: str, update_data: TransactionUpdate):
             return {"message": "No changes made to transaction"}
             
     except Exception as e:
+        print(f"Error updating transaction: {str(e)}")  # Логируем ошибку
+        if "ObjectId" in str(e):
+            raise HTTPException(status_code=400, detail=f"Invalid transaction ID format: {transaction_id}")
         raise HTTPException(status_code=400, detail=f"Error updating transaction: {str(e)}")
 
 @app.delete("/transactions/{transaction_id}")
 def delete_transaction(transaction_id: str):
     """Удалить конкретную транзакцию"""
     try:
+        print(f"Deleting transaction with ID: {transaction_id}")  # Добавляем логирование
+        
         existing_tx = db.transactions.find_one({"_id": ObjectId(transaction_id)})
         if not existing_tx:
+            print(f"Transaction not found: {transaction_id}")  # Логируем если не найдена
             raise HTTPException(status_code=404, detail="Transaction not found")
         
         result = db.transactions.delete_one({"_id": ObjectId(transaction_id)})
@@ -304,6 +314,9 @@ def delete_transaction(transaction_id: str):
             raise HTTPException(status_code=500, detail="Failed to delete transaction")
             
     except Exception as e:
+        print(f"Error deleting transaction: {str(e)}")  # Логируем ошибку
+        if "ObjectId" in str(e):
+            raise HTTPException(status_code=400, detail=f"Invalid transaction ID format: {transaction_id}")
         raise HTTPException(status_code=400, detail=f"Error deleting transaction: {str(e)}")
 
 

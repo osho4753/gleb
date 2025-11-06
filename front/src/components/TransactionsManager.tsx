@@ -249,7 +249,7 @@ export function TransactionsManager() {
     fee_percent: '1',
     note: '',
   })
-  const currencies = ['USD', 'USDT', 'EUR', 'CZK', 'BTC', 'ETH', 'CRON']
+  const currencies = ['USD', 'USDT', 'EUR', 'CZK']
 
   const fetchTransactions = async () => {
     try {
@@ -335,6 +335,18 @@ export function TransactionsManager() {
     if (!confirm('Вы уверены, что хотите удалить эту транзакцию?')) return
 
     try {
+      // Добавляем логирование для отладки
+      console.log('Deleting transaction:', {
+        id: transactionId,
+        apiBase: API_BASE,
+        url: `${API_BASE}/transactions/${transactionId}`,
+      })
+
+      // Проверяем валидность ID
+      if (!transactionId || transactionId.length < 10) {
+        throw new Error('Invalid transaction ID')
+      }
+
       const res = await fetch(`${API_BASE}/transactions/${transactionId}`, {
         method: 'DELETE',
       })
@@ -353,6 +365,19 @@ export function TransactionsManager() {
 
   const updateTransaction = async (transactionId: string, updateData: any) => {
     try {
+      // Добавляем логирование для отладки
+      console.log('Updating transaction:', {
+        id: transactionId,
+        apiBase: API_BASE,
+        url: `${API_BASE}/transactions/${transactionId}`,
+        data: updateData,
+      })
+
+      // Проверяем валидность ID
+      if (!transactionId || transactionId.length < 10) {
+        throw new Error('Invalid transaction ID')
+      }
+
       const res = await fetch(`${API_BASE}/transactions/${transactionId}`, {
         method: 'PUT',
         headers: {
