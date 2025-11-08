@@ -1,6 +1,9 @@
 import { useState, useEffect } from 'react'
 import { toast } from 'sonner'
 import { RefreshCwIcon } from 'lucide-react'
+import { config } from '../config'
+
+const API_BASE = config.apiBaseUrl
 
 interface FiatLot {
   _id: string
@@ -48,7 +51,7 @@ export function FiatLotsManager() {
     try {
       setLoading(true)
       const response = await fetch(
-        `http://localhost:8000/transactions/fiat-lots/${currency}`
+        `${API_BASE}/transactions/fiat-lots/${currency}`
       )
       if (!response.ok) throw new Error('Failed to fetch fiat lots')
 
@@ -65,7 +68,7 @@ export function FiatLotsManager() {
   const fetchProfitSummary = async (currency: string) => {
     try {
       const response = await fetch(
-        `http://localhost:8000/transactions/profit-summary/${currency}`
+        `${API_BASE}/transactions/profit-summary/${currency}`
       )
       if (!response.ok) throw new Error('Failed to fetch profit summary')
 

@@ -343,11 +343,7 @@ export function CashManager() {
 
           <form
             onSubmit={
-              operationType === 'set'
-                ? handleSubmit
-                : operationType === 'deposit'
-                ? handleDeposit
-                : handleWithdrawal
+              operationType === 'deposit' ? handleDeposit : handleWithdrawal
             }
             className="space-y-4"
           >
@@ -370,22 +366,18 @@ export function CashManager() {
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1 text-gray-700">
-                  {operationType === 'set'
-                    ? 'Сумма'
-                    : operationType === 'deposit'
+                  {operationType === 'deposit'
                     ? 'Сумма пополнения'
                     : 'Сумма вывода'}
                 </label>
                 <input
                   type="number"
                   step="0.01"
-                  min={operationType !== 'set' ? '0.01' : undefined}
+                  min={operationType !== 'deposit' ? '0.01' : undefined}
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
                   placeholder={
-                    operationType === 'set'
-                      ? 'Введите сумму'
-                      : operationType === 'deposit'
+                    operationType === 'deposit'
                       ? 'Введите сумму пополнения'
                       : 'Введите сумму вывода'
                   }
@@ -416,21 +408,15 @@ export function CashManager() {
               type="submit"
               disabled={loading}
               className={`w-full px-4 py-2 text-white font-semibold rounded-lg shadow-md disabled:opacity-50 disabled:cursor-not-allowed transition duration-150 ease-in-out ${
-                operationType === 'set'
-                  ? 'bg-blue-600 hover:bg-blue-700'
-                  : operationType === 'deposit'
+                operationType === 'deposit'
                   ? 'bg-green-600 hover:bg-green-700'
                   : 'bg-red-600 hover:bg-red-700'
               }`}
             >
               {loading
-                ? operationType === 'set'
-                  ? 'Сохранение...'
-                  : operationType === 'deposit'
+                ? operationType === 'deposit'
                   ? 'Пополнение...'
                   : 'Вывод...'
-                : operationType === 'set'
-                ? 'Сохранить Баланс'
                 : operationType === 'deposit'
                 ? 'Пополнить Кассу'
                 : 'Вывести из Кассы'}

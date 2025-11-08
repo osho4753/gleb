@@ -13,6 +13,7 @@ type Transaction = {
   to_asset: string
   amount_from: number
   rate_used: number
+  rate_for_gleb_pnl?: number
   fee_percent: number
   note: string
   created_at: string
@@ -567,6 +568,15 @@ export function TransactionsHistory() {
             <div>
               <span className="font-medium">Комиссия:</span> {tx.fee_percent}%
             </div>
+            {tx.rate_for_gleb_pnl && (
+              <>
+                <div>
+                  <span className="font-medium">Эфф. курс:</span>{' '}
+                  {tx.rate_for_gleb_pnl?.toFixed(4)}
+                </div>
+                <div></div>
+              </>
+            )}
           </div>
         )}
 
@@ -779,6 +789,9 @@ export function TransactionsHistory() {
                   {sortBy === 'rate_used' && (sortOrder === 'asc' ? '↑' : '↓')}
                 </th>
                 <th className="px-4 py-3 text-right text-sm font-medium text-gray-700">
+                  Эфф. курс
+                </th>
+                <th className="px-4 py-3 text-right text-sm font-medium text-gray-700">
                   Комиссия %
                 </th>
                 <th
@@ -856,6 +869,11 @@ export function TransactionsHistory() {
                     <td className="px-4 py-3 text-sm text-right">
                       {tx.type === 'deposit' || tx.type === 'withdrawal'
                         ? '-'
+                        : tx.rate_for_gleb_pnl?.toFixed(4) || '-'}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-right">
+                      {tx.type === 'deposit' || tx.type === 'withdrawal'
+                        ? '-'
                         : `${tx.fee_percent}%`}
                     </td>
                     <td
@@ -914,29 +932,70 @@ export function TransactionsHistory() {
 
       {/* Пагинация */}
       {getTotalPages() > 1 && (
-        <div className="flex flex-wrap justify-between items-center mt-4 gap-3">
-          <div className="text-sm text-gray-600 w-full text-center sm:w-auto sm:text-left">
+        <div className="flex flex-col sm:flex-row justify-between items-center mt-4 gap-3">
+          <div className="text-xs sm:text-sm text-gray-600 order-2 sm:order-1">
             Страница {currentPage} из {getTotalPages()}
           </div>
-          <div className="flex flex-wrap justify-center gap-2 w-full sm:w-auto">
+          <div className="flex flex-wrap justify-center gap-1 sm:gap-2 order-1 sm:order-2">
             <button
               onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
               disabled={currentPage === 1}
-              className="px-3 py-1 text-sm bg-gray-500 text-white rounded hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-2 sm:px-3 py-2 text-xs sm:text-sm bg-gray-500 text-white rounded hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed min-w-[60px] sm:min-w-auto"
             >
               ← Назад
             </button>
 
-            {Array.from({ length: Math.min(5, getTotalPages()) }, (_, i) => {
-              const pageNum = Math.max(
-                1,
-                Math.min(getTotalPages(), currentPage - 2 + i)
-              )
-              return (
+            {(() => {
+              const totalPages = getTotalPages()
+              console.log('Pagination debug:', {
+                totalPages,
+                currentPage,
+                filteredLength: getFilteredAndSortedTransactions().length,
+              })
+
+              if (totalPages <= 5) {
+                // Показываем все страницы если их 5 или меньше
+                const allPages = Array.from(
+                  { length: totalPages },
+                  (_, i) => i + 1
+                )
+                console.log('All pages:', allPages)
+                return allPages.map((pageNum) => (
+                  <button
+                    key={`page-${pageNum}`}
+                    onClick={() => setCurrentPage(pageNum)}
+                    className={`px-2 sm:px-3 py-2 text-xs sm:text-sm rounded min-w-[40px] sm:min-w-auto ${
+                      currentPage === pageNum
+                        ? 'bg-blue-500 text-white'
+                        : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                    }`}
+                  >
+                    {pageNum}
+                  </button>
+                ))
+              }
+
+              // Для большого количества страниц показываем 5 страниц вокруг текущей
+              let startPage = Math.max(1, currentPage - 2)
+              let endPage = Math.min(totalPages, startPage + 4)
+
+              // Корректируем если не хватает страниц в конце
+              if (endPage - startPage < 4) {
+                startPage = Math.max(1, endPage - 4)
+              }
+
+              const pageNumbers = []
+              for (let i = startPage; i <= endPage; i++) {
+                pageNumbers.push(i)
+              }
+
+              console.log('Page numbers:', { startPage, endPage, pageNumbers })
+
+              return pageNumbers.map((pageNum) => (
                 <button
-                  key={pageNum}
+                  key={`page-${pageNum}`}
                   onClick={() => setCurrentPage(pageNum)}
-                  className={`px-3 py-1 text-sm rounded ${
+                  className={`px-2 sm:px-3 py-2 text-xs sm:text-sm rounded min-w-[40px] sm:min-w-auto ${
                     currentPage === pageNum
                       ? 'bg-blue-500 text-white'
                       : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
@@ -944,15 +1003,15 @@ export function TransactionsHistory() {
                 >
                   {pageNum}
                 </button>
-              )
-            })}
+              ))
+            })()}
 
             <button
               onClick={() =>
                 setCurrentPage(Math.min(getTotalPages(), currentPage + 1))
               }
               disabled={currentPage === getTotalPages()}
-              className="px-3 py-1 text-sm bg-gray-500 text-white rounded hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-2 sm:px-3 py-2 text-xs sm:text-sm bg-gray-500 text-white rounded hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed min-w-[60px] sm:min-w-auto"
             >
               Вперед →
             </button>

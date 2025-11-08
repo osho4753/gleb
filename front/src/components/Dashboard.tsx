@@ -207,64 +207,6 @@ export function Dashboard() {
           </div>
         </div>
 
-        {/* Cashflow Прибыль */}
-        <div className="w-full">
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-3">
-            <h3 className="text-lg sm:text-xl font-semibold">Cashflow</h3>
-          </div>
-
-          <div className="border rounded-lg overflow-hidden bg-white shadow-sm">
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-3 sm:px-4 py-3 text-left text-xs sm:text-sm font-medium text-gray-700">
-                      Валюта
-                    </th>
-                    <th className="px-3 sm:px-4 py-3 text-right text-xs sm:text-sm font-medium text-gray-700">
-                      Кол-во
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y">
-                  {cashProfit.cashflow_profit_by_currency &&
-                  Object.entries(cashProfit.cashflow_profit_by_currency)
-                    .length > 0 ? (
-                    Object.entries(cashProfit.cashflow_profit_by_currency).map(
-                      ([currency, profit]) =>
-                        currency !== '' && (
-                          <tr key={currency} className="hover:bg-gray-50">
-                            <td className="px-3 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm font-medium">
-                              {currency}
-                            </td>
-                            <td
-                              className={`px-3 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm text-right font-medium ${
-                                Number(profit) >= 0
-                                  ? 'text-green-600'
-                                  : 'text-red-600'
-                              }`}
-                            >
-                              {Number(profit).toFixed(2)}
-                            </td>
-                          </tr>
-                        )
-                    )
-                  ) : (
-                    <tr>
-                      <td
-                        colSpan={2}
-                        className="px-3 sm:px-4 py-6 sm:py-8 text-center text-xs sm:text-sm text-gray-500"
-                      >
-                        Нет данных о cashflow прибыли
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-
         {/* Реализованная Прибыль */}
         <div className="w-full">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-3">

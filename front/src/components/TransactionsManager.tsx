@@ -44,7 +44,11 @@ export function TransactionsManager({
         }),
       })
       if (res.ok) {
-        toast.success('Транзакция успешно создана')
+        const result = await res.json()
+        const effRate = result.rate_for_gleb_pnl
+          ? ` (Эфф. курс: ${result.rate_for_gleb_pnl.toFixed(4)})`
+          : ''
+        toast.success(`Транзакция успешно создана${effRate}`)
         setFormData({
           ...formData,
           amount_from: '',
