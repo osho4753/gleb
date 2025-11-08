@@ -12,10 +12,29 @@ type CashProfit = {
   profits_by_currency?: Record<string, number>
 }
 
+interface ProfitSummary {
+  currency: string
+  realized_profit: {
+    fiat: number
+    usdt: number
+  }
+  remaining_lots: {
+    count: number
+    total_value: number
+  }
+  transactions: {
+    buy_count: number
+    sell_count: number
+  }
+}
+
 export function Dashboard() {
   const [cashStatus, setCashStatus] = useState<CashStatus>({})
   const [cashProfit, setCashProfit] = useState<CashProfit>({})
   const [realizedProfit, setRealizedProfit] = useState<CashProfit>({})
+  const [profitSummaries, setProfitSummaries] = useState<
+    Record<string, ProfitSummary>
+  >({})
   const [loading, setLoading] = useState(false)
   const fetchData = async () => {
     setLoading(true)
@@ -40,6 +59,24 @@ export function Dashboard() {
         const realizedData = await realizedRes.json()
         setRealizedProfit(realizedData)
       }
+
+      // Получаем данные по фиатным лотам для всех валют
+      const currencies = ['CZK', 'USD', 'EUR']
+      const summariesData: Record<string, ProfitSummary> = {}
+
+      for (const currency of currencies) {
+        try {
+          const summaryRes = await fetch(
+            `${API_BASE}/transactions/profit-summary/${currency}`
+          )
+          if (summaryRes.ok) {
+            summariesData[currency] = await summaryRes.json()
+          }
+        } catch (error) {
+          console.error(`Failed to fetch summary for ${currency}:`, error)
+        }
+      }
+      setProfitSummaries(summariesData)
     } catch (error) {
       toast.error('Не удалось загрузить данные')
     } finally {
@@ -60,6 +97,28 @@ export function Dashboard() {
       }
     } catch (error) {
       toast.error('Ошибка при сбросе кассы')
+    }
+  }
+
+  const handleResetAllData = async () => {
+    if (
+      !confirm(
+        'Вы уверены, что хотите сбросить ВСЕ данные (касса, транзакции, лоты, PnL матчи)?'
+      )
+    )
+      return
+    try {
+      const res = await fetch(`${API_BASE}/reset-all-data`, {
+        method: 'DELETE',
+      })
+      if (res.ok) {
+        toast.success('Все данные успешно сброшены')
+        fetchData()
+      } else {
+        toast.error('Не удалось сбросить данные')
+      }
+    } catch (error) {
+      toast.error('Ошибка при сбросе данных')
     }
   }
   useEffect(() => {
@@ -86,7 +145,16 @@ export function Dashboard() {
             className="flex items-center justify-center gap-1.5 px-3 sm:px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 text-sm sm:text-base flex-1 sm:flex-none min-h-[40px]"
           >
             <TrashIcon size={16} />
-            <span>Сбросить Кассу</span>
+            <span className="hidden sm:inline">Сбросить Кассу</span>
+            <span className="sm:hidden">Касса</span>
+          </button>
+          <button
+            onClick={handleResetAllData}
+            className="flex items-center justify-center gap-1.5 px-3 sm:px-4 py-2 bg-red-700 text-white rounded hover:bg-red-800 text-sm sm:text-base flex-1 sm:flex-none min-h-[40px]"
+          >
+            <TrashIcon size={16} />
+            <span className="hidden sm:inline">Сбросить Всё</span>
+            <span className="sm:hidden">Всё</span>
           </button>
         </div>
       </div>
@@ -257,6 +325,67 @@ export function Dashboard() {
           </div>
         </div>
       </div>
+
+      {/* Новая секция - Сводка по фиатным лотам */}
+      {Object.keys(profitSummaries).length > 0 && (
+        <div className="mt-8">
+          <h3 className="text-lg sm:text-xl font-semibold mb-4">
+            Сводка по фиатным лотам
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {Object.entries(profitSummaries).map(([currency, summary]) => (
+              <div
+                key={currency}
+                className="border rounded-lg bg-white shadow-sm p-4"
+              >
+                <h4 className="font-semibold text-lg mb-3 text-center">
+                  {currency}
+                </h4>
+
+                <div className="space-y-3">
+                  <div className="bg-green-50 p-3 rounded border border-green-200">
+                    <div className="text-sm text-green-800 font-medium">
+                      Реализованная прибыль
+                    </div>
+                    <div className="text-lg font-semibold text-green-900">
+                      {summary.realized_profit.fiat.toFixed(2)} {currency}
+                    </div>
+                    <div className="text-xs text-green-700">
+                      ≈ {summary.realized_profit.usdt.toFixed(4)} USDT
+                    </div>
+                  </div>
+
+                  <div className="bg-blue-50 p-3 rounded border border-blue-200">
+                    <div className="text-sm text-blue-800 font-medium">
+                      Остатки лотов
+                    </div>
+                    <div className="text-lg font-semibold text-blue-900">
+                      {summary.remaining_lots.total_value.toFixed(2)} {currency}
+                    </div>
+                    <div className="text-xs text-blue-700">
+                      {summary.remaining_lots.count} активных лотов
+                    </div>
+                  </div>
+
+                  <div className="bg-purple-50 p-3 rounded border border-purple-200">
+                    <div className="text-sm text-purple-800 font-medium">
+                      Транзакции
+                    </div>
+                    <div className="text-lg font-semibold text-purple-900">
+                      {summary.transactions.buy_count +
+                        summary.transactions.sell_count}
+                    </div>
+                    <div className="text-xs text-purple-700">
+                      {summary.transactions.buy_count} покупок,{' '}
+                      {summary.transactions.sell_count} продаж
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -4,6 +4,7 @@ import { Dashboard } from './components/Dashboard'
 import { CashManager } from './components/CashManager'
 import { TransactionsManager } from './components/TransactionsManager'
 import { TransactionsHistory } from './components/TransactionsHistory'
+import { FiatLotsManager } from './components/FiatLotsManager'
 export function App() {
   const [activeTab, setActiveTab] = useState('dashboard')
   return (
@@ -56,6 +57,17 @@ export function App() {
             >
               История
             </button>
+
+            <button
+              onClick={() => setActiveTab('lots')}
+              className={`px-3 sm:px-4 py-2 font-medium whitespace-nowrap text-sm sm:text-base ${
+                activeTab === 'lots'
+                  ? 'border-b-2 border-blue-500 text-blue-600'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              Фиат Лоты
+            </button>
           </div>
         </div>
         <div className="bg-white rounded-lg shadow p-3 sm:p-6">
@@ -68,6 +80,7 @@ export function App() {
           )}
 
           {activeTab === 'history' && <TransactionsHistory />}
+          {activeTab === 'lots' && <FiatLotsManager />}
         </div>
       </div>
     </div>

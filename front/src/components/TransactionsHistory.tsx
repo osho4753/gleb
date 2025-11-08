@@ -8,7 +8,7 @@ const API_BASE = config.apiBaseUrl
 // Типы для транзакций
 type Transaction = {
   _id: string
-  type: 'fiat_to_crypto' | 'crypto_to_fiat' | 'deposit'
+  type: 'fiat_to_crypto' | 'crypto_to_fiat' | 'deposit' | 'withdrawal'
   from_asset: string
   to_asset: string
   amount_from: number
@@ -36,7 +36,11 @@ function EditTransactionModal({
   onSave: (id: string, data: any) => void
 }) {
   const [formData, setFormData] = useState({
-    type: 'fiat_to_crypto' as 'fiat_to_crypto' | 'crypto_to_fiat' | 'deposit',
+    type: 'fiat_to_crypto' as
+      | 'fiat_to_crypto'
+      | 'crypto_to_fiat'
+      | 'deposit'
+      | 'withdrawal',
     from_asset: 'USD',
     to_asset: 'BTC',
     amount_from: '',
@@ -115,7 +119,8 @@ function EditTransactionModal({
                   type: e.target.value as
                     | 'fiat_to_crypto'
                     | 'crypto_to_fiat'
-                    | 'deposit',
+                    | 'deposit'
+                    | 'withdrawal',
                 })
               }
               className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
@@ -123,6 +128,7 @@ function EditTransactionModal({
               <option value="fiat_to_crypto">Фиат в Крипто</option>
               <option value="crypto_to_fiat">Крипто в Фиат</option>
               <option value="deposit">Пополнение</option>
+              <option value="withdrawal">Вычет</option>
             </select>
           </div>
 
@@ -493,13 +499,17 @@ export function TransactionsHistory() {
         ? 'Фиат в Крипто'
         : tx.type === 'crypto_to_fiat'
         ? 'Крипто в Фиат'
-        : 'Пополнение'
+        : tx.type === 'deposit'
+        ? 'Пополнение'
+        : 'Вычет'
     const typeColor =
       tx.type === 'fiat_to_crypto'
         ? 'bg-blue-100 text-blue-700'
         : tx.type === 'crypto_to_fiat'
+        ? 'bg-orange-100 text-orange-700'
+        : tx.type === 'deposit'
         ? 'bg-green-100 text-green-700'
-        : 'bg-orange-100 text-orange-700'
+        : 'bg-red-100 text-red-700'
     const profitColor = tx.profit >= 0 ? 'text-green-600' : 'text-red-600'
     const formattedDate = new Date(tx.created_at).toLocaleString('ru-RU', {
       day: '2-digit',
@@ -542,12 +552,14 @@ export function TransactionsHistory() {
         <div className="font-semibold text-lg">
           {tx.type === 'deposit'
             ? `+${tx.amount_from.toFixed(2)} ${tx.from_asset}`
+            : tx.type === 'withdrawal'
+            ? `${tx.amount_from.toFixed(2)} ${tx.from_asset}`
             : `${tx.amount_from.toFixed(2)} ${
                 tx.from_asset
               } → ${tx.amount_to_final.toFixed(2)} ${tx.to_asset}`}
         </div>
 
-        {tx.type !== 'deposit' && (
+        {tx.type !== 'deposit' && tx.type !== 'withdrawal' && (
           <div className="grid grid-cols-2 gap-2 text-xs text-gray-600">
             <div>
               <span className="font-medium">Курс:</span> {tx.rate_used}
@@ -558,7 +570,7 @@ export function TransactionsHistory() {
           </div>
         )}
 
-        {tx.type !== 'deposit' && (
+        {tx.type !== 'deposit' && tx.type !== 'withdrawal' && (
           <div className="text-gray-600">
             <span className="font-medium">Прибыль:</span>{' '}
             <span className={profitColor + ' font-bold'}>
@@ -803,47 +815,61 @@ export function TransactionsHistory() {
                           tx.type === 'fiat_to_crypto'
                             ? 'bg-blue-100 text-blue-700'
                             : tx.type === 'crypto_to_fiat'
+                            ? 'bg-orange-100 text-orange-700'
+                            : tx.type === 'deposit'
                             ? 'bg-green-100 text-green-700'
-                            : 'bg-orange-100 text-orange-700'
+                            : 'bg-red-100 text-red-700'
                         }`}
                       >
                         {tx.type === 'fiat_to_crypto'
                           ? 'Фиат в Крипто'
                           : tx.type === 'crypto_to_fiat'
                           ? 'Крипто в Фиат'
-                          : 'Пополнение'}
+                          : tx.type === 'deposit'
+                          ? 'Пополнение'
+                          : 'Вычет'}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-sm font-medium">
                       {tx.from_asset}
                     </td>
                     <td className="px-4 py-3 text-sm font-medium">
-                      {tx.type === 'deposit' ? '-' : tx.to_asset}
+                      {tx.type === 'deposit' || tx.type === 'withdrawal'
+                        ? '-'
+                        : tx.to_asset}
                     </td>
                     <td className="px-4 py-3 text-sm text-right ">
-                      +{tx.amount_from?.toFixed(2)} {tx.from_asset}
+                      {tx.type === 'withdrawal'
+                        ? `${tx.amount_from.toFixed(2)} ${tx.from_asset}`
+                        : `+${tx.amount_from?.toFixed(2)} ${tx.from_asset}`}
                     </td>
                     <td className="px-4 py-3 text-sm text-right ">
-                      {tx.type === 'deposit'
+                      {tx.type === 'deposit' || tx.type === 'withdrawal'
                         ? '-'
                         : `-${tx.amount_to_final?.toFixed(2)} ${tx.to_asset}`}
                     </td>
                     <td className="px-4 py-3 text-sm text-right">
-                      {tx.type === 'deposit' ? '-' : tx.rate_used}
+                      {tx.type === 'deposit' || tx.type === 'withdrawal'
+                        ? '-'
+                        : tx.rate_used}
                     </td>
                     <td className="px-4 py-3 text-sm text-right">
-                      {tx.type === 'deposit' ? '-' : `${tx.fee_percent}%`}
+                      {tx.type === 'deposit' || tx.type === 'withdrawal'
+                        ? '-'
+                        : `${tx.fee_percent}%`}
                     </td>
                     <td
                       className={`px-4 py-3 text-sm text-right font-medium ${
-                        tx.type === 'deposit'
+                        tx.type === 'deposit' || tx.type === 'withdrawal'
                           ? 'text-gray-500'
                           : tx.profit >= 0
                           ? 'text-green-600'
                           : 'text-red-600'
                       }`}
                     >
-                      {tx.type === 'deposit' ? '-' : tx.profit?.toFixed(2)}{' '}
+                      {tx.type === 'deposit' || tx.type === 'withdrawal'
+                        ? '-'
+                        : tx.profit?.toFixed(2)}{' '}
                       {tx.profit_currency}
                     </td>
                     <td className="px-4 py-3 text-sm max-w-xs">

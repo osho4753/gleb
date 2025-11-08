@@ -2,12 +2,6 @@ from pydantic import BaseModel, Field
 from datetime import datetime
 from typing import Optional
 
-class Rate(BaseModel):
-    from_asset: str
-    to_asset: str
-    rate: float
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-
 class Transaction(BaseModel):
     type: str                     # "crypto_to_fiat", "fiat_to_crypto", "fiat_to_fiat"
     from_asset: str
@@ -36,6 +30,12 @@ class TransactionUpdate(BaseModel):
     created_at: Optional[datetime] = None
 
 class CashDeposit(BaseModel):
+    asset: str
+    amount: float = Field(gt=0, description="Amount must be positive")
+    note: Optional[str] = ""
+    created_at: Optional[datetime] = Field(default_factory=datetime.utcnow)
+
+class CashWithdrawal(BaseModel):
     asset: str
     amount: float = Field(gt=0, description="Amount must be positive")
     note: Optional[str] = ""
