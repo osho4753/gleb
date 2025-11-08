@@ -207,7 +207,7 @@ export function FiatLotsManager() {
                       </span>
                     </div>
                     <div className="flex justify-between text-sm">
-                      <span className="text-gray-600">Курс:</span>
+                      <span className="text-gray-600">Курс покупки:</span>
                       <span className="font-medium">
                         {formatNumber(lot.rate, 5)} {lot.currency}/USDT
                       </span>
@@ -231,7 +231,7 @@ export function FiatLotsManager() {
                     Остаток
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Курс ({selectedCurrency}/USDT)
+                    Курс покупки ({selectedCurrency}/USDT)
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Комиссия

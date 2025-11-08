@@ -22,6 +22,12 @@ interface ProfitSummary {
     count: number
     total_value: number
   }
+  rates_info?: {
+    min_rate: number
+    max_rate: number
+    avg_rate: number
+    weighted_avg_rate: number
+  }
   transactions: {
     buy_count: number
     sell_count: number
@@ -307,6 +313,11 @@ export function Dashboard() {
                     <div className="text-xs text-blue-700">
                       {summary.remaining_lots.count} активных лотов
                     </div>
+                    {summary.rates_info && summary.remaining_lots.count > 0 && (
+                      <div className="text-xs text-blue-900">
+                        ср: {summary.rates_info.avg_rate.toFixed(5)}
+                      </div>
+                    )}
                   </div>
 
                   <div className="bg-purple-50 p-3 rounded border border-purple-200">
