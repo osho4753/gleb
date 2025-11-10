@@ -531,31 +531,6 @@ export function CashManager() {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-center">
                         <div className="flex gap-2 justify-center">
-                          {/* Edit Button - opens modal */}
-                          <button
-                            onClick={() =>
-                              handleOpenEditModal(curr, Number(amt))
-                            }
-                            className="p-1.5 rounded-full text-white bg-blue-500 hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition duration-150"
-                            aria-label={`Редактировать ${curr}`}
-                            disabled={loading}
-                          >
-                            <svg
-                              xmlns="http://www.w3.org/2000/svg"
-                              width="16"
-                              height="16"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="2"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            >
-                              <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" />
-                              <path d="m15 5 4 4" />
-                            </svg>
-                          </button>
-                          {/* Delete Button - opens modal */}
                           <button
                             onClick={() =>
                               handleOpenDeleteModal(curr, Number(amt))

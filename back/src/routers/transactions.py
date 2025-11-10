@@ -40,19 +40,27 @@ def create_transaction(tx: Transaction):
         tx.amount_to_clean = tx.amount_from * tx.rate_used
 
     # --- Расчёт комиссии ---
-    if tx.type == "crypto_to_fiat":
-        # Клиент получает фиат → мы доплачиваем комиссию
+    if tx.type == "crypto_to_fiat":        
         tx.fee_amount = tx.amount_to_clean * (tx.fee_percent / 100)
         tx.amount_to_final = round(tx.amount_to_clean + tx.fee_amount)  # округляем до целого
         tx.profit = round(-tx.fee_amount) 
         fee_direction = "added"
+        if tx.to_asset == "CZK" or tx.to_asset == "USD":
+            tx.rate_for_gleb_pnl =  tx.rate_used * (1 + (tx.fee_percent / 100))
+        elif tx.to_asset == "EUR":
+            tx.rate_for_gleb_pnl =  tx.rate_used / (1 + (tx.fee_percent / 100))
 
     elif tx.type == "fiat_to_crypto":
         # Клиент платит фиат → мы удерживаем комиссию
         tx.amount_to_final = round(tx.amount_to_clean / (1 + (tx.fee_percent / 100)))  # округляем до целого
         tx.fee_amount = tx.amount_to_clean - tx.amount_to_final
-        tx.profit = round(tx.fee_amount)  
+        tx.profit = round(tx.fee_amount)   
         fee_direction = "deducted"
+        if tx.from_asset == "CZK" or tx.from_asset == "USD":
+            tx.rate_for_gleb_pnl =  tx.rate_used * (1 + (tx.fee_percent / 100))
+        elif tx.from_asset == "EUR":
+            tx.rate_for_gleb_pnl =  tx.rate_used / (1 + (tx.fee_percent / 100))
+     
 
     from_cash = db.cash.find_one({"asset": tx.from_asset})
     to_cash = db.cash.find_one({"asset": tx.to_asset})
@@ -194,6 +202,7 @@ def create_transaction(tx: Transaction):
     return {
         "type": tx.type,
         "rate_used": tx.rate_used,
+        "rate_for_gleb_pnl": tx.rate_for_gleb_pnl,
         "from_asset": tx.from_asset,
         "to_asset": tx.to_asset,
         "amount_from": tx.amount_from,
@@ -261,6 +270,18 @@ def get_profit_summary(currency: str):
     lots = list(db.fiat_lots.find({"currency": currency, "remaining": {"$gt": 0}}))
     remaining_value = sum(lot["remaining"] for lot in lots)
     
+    # Анализ курсов активных лотов
+    rates_info = {}
+    if lots:
+        rates = [lot["rate"] for lot in lots]
+        weighted_avg_rate = sum(lot["rate"] * lot["remaining"] for lot in lots) / remaining_value if remaining_value > 0 else 0
+        rates_info = {
+            "min_rate": round(min(rates), 5),
+            "max_rate": round(max(rates), 5),
+            "avg_rate": round(sum(rates) / len(rates), 5),
+            "weighted_avg_rate": round(weighted_avg_rate, 5)
+        }
+    
     # Количество транзакций
     buy_txs = db.transactions.count_documents({"type": "fiat_to_crypto", "from_asset": currency})
     sell_txs = db.transactions.count_documents({"type": "crypto_to_fiat", "to_asset": currency})
@@ -275,6 +296,7 @@ def get_profit_summary(currency: str):
             "count": len(lots),
             "total_value": round(remaining_value, 2)
         },
+        "rates_info": rates_info,
         "transactions": {
             "buy_count": buy_txs,
             "sell_count": sell_txs
@@ -338,12 +360,17 @@ def update_transaction(transaction_id: str, update_data: TransactionUpdate):
             if temp_tx.type == "crypto_to_fiat":
                 temp_tx.fee_amount = temp_tx.amount_to_clean * (temp_tx.fee_percent / 100)
                 temp_tx.amount_to_final = round(temp_tx.amount_to_clean + temp_tx.fee_amount)
+                # Эффективный курс = фактически выданный фиат / полученная крипта
+                temp_tx.rate_for_gleb_pnl = temp_tx.amount_to_final / temp_tx.amount_from
                 temp_tx.profit = round(-temp_tx.fee_amount)
             elif temp_tx.type == "fiat_to_crypto":
                 temp_tx.amount_to_final = round(temp_tx.amount_to_clean / (1 + (temp_tx.fee_percent / 100)))
                 temp_tx.fee_amount = temp_tx.amount_to_clean - temp_tx.amount_to_final
+                # Эффективный курс = полученный фиат / фактически выданная крипта
+                temp_tx.rate_for_gleb_pnl = temp_tx.amount_from / temp_tx.amount_to_final
                 temp_tx.profit = round(temp_tx.fee_amount)
             else:
+                temp_tx.rate_for_gleb_pnl = temp_tx.rate_used
                 temp_tx.fee_amount = 0
                 temp_tx.amount_to_final = round(temp_tx.amount_to_clean)
                 temp_tx.profit = 0
@@ -351,6 +378,7 @@ def update_transaction(transaction_id: str, update_data: TransactionUpdate):
             # Добавляем пересчитанные поля в обновление
             update_fields.update({
                 "amount_to_clean": temp_tx.amount_to_clean,
+                "rate_for_gleb_pnl": temp_tx.rate_for_gleb_pnl,
                 "fee_amount": temp_tx.fee_amount,
                 "amount_to_final": temp_tx.amount_to_final,
                 "profit": temp_tx.profit

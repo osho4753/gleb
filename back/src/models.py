@@ -12,6 +12,7 @@ class Transaction(BaseModel):
     amount_to_clean: Optional[float] = None
     fee_amount: Optional[float] = None
     amount_to_final: Optional[float] = None
+    rate_for_gleb_pnl: Optional[float] = None
     profit: Optional[float] = None
     profit_currency : Optional[str] = None
     note: Optional[str] = ""      # Поле для пометок к транзакции
