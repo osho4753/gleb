@@ -5,6 +5,7 @@ import {
   EditIcon,
   TrashIcon,
   ChevronDownIcon,
+  DownloadIcon,
 } from 'lucide-react'
 import { config } from '../config'
 import { evaluate } from 'mathjs'
@@ -290,6 +291,9 @@ export function TransactionsHistory() {
   const [calculatorOpen, setCalculatorOpen] = useState(false)
   const [calculatorResult, setCalculatorResult] = useState<string | null>(null)
 
+  // Состояние для меню экспорта
+  const [exportMenuOpen, setExportMenuOpen] = useState(false)
+
   // Пагинация и сортировка
   const [currentPage, setCurrentPage] = useState(1)
   const [itemsPerPage, setItemsPerPage] = useState(10)
@@ -530,6 +534,53 @@ export function TransactionsHistory() {
     }
   }
 
+  // Функция экспорта в CSV
+  const handleExportCSV = async (simple = false) => {
+    try {
+      const endpoint = simple
+        ? `${API_BASE}/transactions/export/csv/simple`
+        : `${API_BASE}/transactions/export/csv`
+
+      console.log('Экспорт CSV:', { endpoint, simple, API_BASE })
+      toast.info('Загрузка CSV файла...')
+
+      const response = await fetch(endpoint)
+
+      console.log('Ответ сервера:', {
+        status: response.status,
+        ok: response.ok,
+        headers: response.headers,
+      })
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        console.error('Ошибка ответа:', errorText)
+        throw new Error(`Ошибка при экспорте: ${response.status}`)
+      }
+
+      const blob = await response.blob()
+      console.log('Blob получен:', { size: blob.size, type: blob.type })
+
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `transactions_${simple ? 'simple_' : ''}${Date.now()}.csv`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      window.URL.revokeObjectURL(url)
+
+      toast.success('CSV файл загружен успешно!')
+    } catch (error) {
+      console.error('Ошибка при экспорте:', error)
+      toast.error(
+        `Ошибка при экспорте в CSV: ${
+          error instanceof Error ? error.message : 'Неизвестная ошибка'
+        }`
+      )
+    }
+  }
+
   // Компонент карточки транзакции для мобильных устройств
   const TransactionCard = ({ tx }: { tx: Transaction }) => {
     const typeLabel =
@@ -669,6 +720,21 @@ export function TransactionsHistory() {
     fetchTransactions()
   }, [])
 
+  // Закрытие меню экспорта при клике вне его
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement
+      if (exportMenuOpen && !target.closest('.export-menu-container')) {
+        setExportMenuOpen(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [exportMenuOpen])
+
   // Сброс страницы при изменении фильтров
   useEffect(() => {
     setCurrentPage(1)
@@ -679,7 +745,7 @@ export function TransactionsHistory() {
       {/* Заголовок */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
         <h2 className="text-xl sm:text-2xl font-bold">История Транзакций</h2>
-        <div className="flex gap-2 w-full sm:w-auto">
+        <div className="flex gap-2 w-full sm:w-auto flex-wrap">
           <button
             onClick={fetchTransactions}
             disabled={loading}
@@ -692,6 +758,50 @@ export function TransactionsHistory() {
             <span className="hidden sm:inline">Обновить</span>
             <span className="sm:hidden">Обновить</span>
           </button>
+
+          {/* Меню экспорта */}
+          <div className="relative flex-1 sm:flex-none export-menu-container">
+            <button
+              onClick={() => setExportMenuOpen(!exportMenuOpen)}
+              className="w-full flex items-center justify-center gap-2 px-3 sm:px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 text-sm"
+            >
+              <DownloadIcon size={16} />
+              <span className="hidden sm:inline">Экспорт</span>
+              <span className="sm:hidden">CSV</span>
+              <ChevronDownIcon
+                size={14}
+                className={`transition-transform ${
+                  exportMenuOpen ? 'rotate-180' : ''
+                }`}
+              />
+            </button>
+
+            {exportMenuOpen && (
+              <div className="absolute right-0 mt-1 w-48 bg-white rounded-lg shadow-lg border border-gray-200 z-10">
+                <button
+                  onClick={() => {
+                    handleExportCSV(true)
+                    setExportMenuOpen(false)
+                  }}
+                  className="w-full text-left px-4 py-2 text-sm hover:bg-gray-100 rounded-t-lg flex items-center gap-2"
+                >
+                  <DownloadIcon size={14} />
+                  Простой CSV
+                </button>
+                <button
+                  onClick={() => {
+                    handleExportCSV(false)
+                    setExportMenuOpen(false)
+                  }}
+                  className="w-full text-left px-4 py-2 text-sm hover:bg-gray-100 rounded-b-lg flex items-center gap-2"
+                >
+                  <DownloadIcon size={14} />
+                  Полный CSV
+                </button>
+              </div>
+            )}
+          </div>
+
           <button
             onClick={handleResetTransactions}
             className="flex items-center justify-center gap-2 px-3 sm:px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 text-sm flex-1 sm:flex-none"

@@ -23,6 +23,9 @@ export function TransactionsManager({
   })
   const currencies = ['USD', 'USDT', 'EUR', 'CZK']
 
+  // Ref для скролла к форме
+  const formInputsRef = React.useRef<HTMLDivElement>(null)
+
   // Состояние для модального окна пополнения кассы
   const [insufficientFundsModal, setInsufficientFundsModal] = useState({
     isOpen: false,
@@ -43,6 +46,12 @@ export function TransactionsManager({
     { from: 'USDT', to: 'USD' },
     { from: 'USDT', to: 'EUR' },
     { from: 'USDT', to: 'CZK' },
+    { from: 'EUR', to: 'USD' },
+    { from: 'USD', to: 'EUR' },
+    { from: 'CZK', to: 'USD' },
+    { from: 'USD', to: 'CZK' },
+    { from: 'CZK', to: 'EUR' },
+    { from: 'EUR', to: 'CZK' },
   ]
 
   const loadPreset = (preset: (typeof presets)[0]) => {
@@ -52,8 +61,14 @@ export function TransactionsManager({
     const isFromFiat = fiatCurrencies.includes(preset.from)
     const isToFiat = fiatCurrencies.includes(preset.to)
 
-    const transactionType =
-      isFromFiat && !isToFiat ? 'fiat_to_crypto' : 'crypto_to_fiat'
+    let transactionType: string
+    if (isFromFiat && isToFiat) {
+      transactionType = 'fiat_to_fiat'
+    } else if (isFromFiat && !isToFiat) {
+      transactionType = 'fiat_to_crypto'
+    } else {
+      transactionType = 'crypto_to_fiat'
+    }
 
     setFormData({
       ...formData,
@@ -62,6 +77,14 @@ export function TransactionsManager({
       to_asset: preset.to,
       fee_percent: '1',
     })
+
+    // Скролл к форме ввода
+    setTimeout(() => {
+      formInputsRef.current?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+      })
+    }, 100)
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -204,26 +227,79 @@ export function TransactionsManager({
           <p className="text-sm font-medium text-gray-700 mb-3">
             Быстрая навигация:
           </p>
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-            {presets.map((preset, idx) => (
-              <button
-                key={idx}
-                type="button"
-                onClick={() => loadPreset(preset)}
-                className="px-3 py-2 bg-white border-2 border-gray-300 rounded-lg text-sm font-medium text-gray-800 hover:bg-blue-50 hover:border-blue-400 transition-colors text-center"
-              >
-                {preset.from}
-                <br />
-                <span className="text-xs text-gray-500">→</span>
-                <br />
-                {preset.to}
-              </button>
-            ))}
+
+          {/* Фиат → Крипто */}
+          <div className="mb-4">
+            <p className="text-xs font-semibold text-blue-600 mb-2">
+              💵 Фиат → Крипто
+            </p>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              {presets.slice(0, 3).map((preset, idx) => (
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={() => loadPreset(preset)}
+                  className="px-3 py-2 bg-white border-2 border-blue-300 rounded-lg text-sm font-medium text-gray-800 hover:bg-blue-50 hover:border-blue-400 transition-colors text-center"
+                >
+                  {preset.from}
+                  <br />
+                  <span className="text-xs text-gray-500">→</span>
+                  <br />
+                  {preset.to}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Крипто → Фиат */}
+          <div className="mb-4">
+            <p className="text-xs font-semibold text-orange-600 mb-2">
+              🔄 Крипто → Фиат
+            </p>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              {presets.slice(3, 6).map((preset, idx) => (
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={() => loadPreset(preset)}
+                  className="px-3 py-2 bg-white border-2 border-orange-300 rounded-lg text-sm font-medium text-gray-800 hover:bg-orange-50 hover:border-orange-400 transition-colors text-center"
+                >
+                  {preset.from}
+                  <br />
+                  <span className="text-xs text-gray-500">→</span>
+                  <br />
+                  {preset.to}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Фиат → Фиат */}
+          <div>
+            <p className="text-xs font-semibold text-purple-600 mb-2">
+              💱 Фиат → Фиат
+            </p>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              {presets.slice(6).map((preset, idx) => (
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={() => loadPreset(preset)}
+                  className="px-3 py-2 bg-white border-2 border-purple-300 rounded-lg text-sm font-medium text-gray-800 hover:bg-purple-50 hover:border-purple-400 transition-colors text-center"
+                >
+                  {preset.from}
+                  <br />
+                  <span className="text-xs text-gray-500">→</span>
+                  <br />
+                  {preset.to}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
+          <div ref={formInputsRef}>
             <label className="block text-sm font-medium mb-2">
               Тип Транзакции
             </label>
@@ -238,6 +314,14 @@ export function TransactionsManager({
                   from_asset: newType === 'crypto_to_fiat' ? 'USDT' : 'USD',
                   to_asset: newType === 'crypto_to_fiat' ? 'USD' : 'USDT',
                 })
+
+                // Скролл к форме ввода
+                setTimeout(() => {
+                  formInputsRef.current?.scrollIntoView({
+                    behavior: 'smooth',
+                    block: 'start',
+                  })
+                }, 100)
               }}
               className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
             >

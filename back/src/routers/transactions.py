@@ -2,9 +2,12 @@
 Роутер для операций с транзакциями
 """
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 from bson import ObjectId
 from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP
+import csv
+from io import StringIO
 from ..db import db
 from ..models import Transaction, TransactionUpdate
 from ..constants import FIAT_ASSETS, SPECIAL_FIAT
@@ -275,11 +278,17 @@ def create_transaction(tx: Transaction):
                 lot_rate = D(lot["rate"])  # fallback to stored rate
             
             take = lot_rem if lot_rem <= need else need
-            matched_usdt = take / sell_rate_eff  # сколько USDT закрываем этим куском
+            matched_usdt = take / sell_rate_eff  # сколько USDT получаем от клиента
 
-            # PnL расчет для fiat_to_fiat лотов
-            pnl_piece_fiat = (lot_rate - sell_rate_eff) * matched_usdt
-            pnl_piece_usdt = pnl_piece_fiat / sell_rate_eff
+            # ✅ ПРАВИЛЬНЫЙ PnL расчет для fiat_to_fiat лотов:
+            # Находим себестоимость проданной части в USDT
+            portion = take / lot_rem  # какая доля лота продается
+            cost_usdt_portion = cost_usdt_of_fiat_in * portion  # себестоимость в USDT
+            
+            # PnL = выручка в USDT - себестоимость в USDT
+            pnl_piece_usdt = matched_usdt - cost_usdt_portion
+            # Конвертируем PnL в фиат для отображения
+            pnl_piece_fiat = pnl_piece_usdt / sell_rate_eff
 
             pnl_fiat += pnl_piece_fiat
             pnl_usdt += pnl_piece_usdt
@@ -376,6 +385,183 @@ def get_transactions():
     for t in txs:
         t["_id"] = str(t["_id"])
     return txs
+
+
+@router.get("/export/csv")
+def export_transactions_csv():
+    """Экспорт всех транзакций в CSV для Excel"""
+    # Получаем все транзакции
+    txs = list(db.transactions.find().sort("created_at", 1))
+    
+    # Создаем StringIO для записи CSV
+    output = StringIO()
+    writer = csv.writer(output, delimiter=';')  # точка с запятой для Excel
+    
+    # Заголовки
+    writer.writerow([
+        'Дата/Время',
+        'Тип операции',
+        'Принял',
+        'Количество',
+        'Выдал',
+        'Количество',
+        'Курс',
+        'Комиссия %',
+        'Прибыль',
+        'Валюта прибыли',
+        'Примечание'
+    ])
+    
+    # Маппинг типов транзакций на русский
+    type_mapping = {
+        'deposit': 'Пополнение',
+        'withdrawal': 'Вывод',
+        'fiat_to_crypto': 'Фиат → Крипта',
+        'crypto_to_fiat': 'Крипта → Фиат',
+        'fiat_to_fiat': 'Обмен фиата'
+    }
+    
+    # Заполняем данные
+    for tx in txs:
+        tx_type = tx.get('type', '')
+        created_at = tx.get('created_at', '')
+        
+        # Форматируем дату
+        if isinstance(created_at, datetime):
+            date_str = created_at.strftime('%d.%m.%Y %H:%M:%S')
+        elif isinstance(created_at, str):
+            try:
+                dt = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+                date_str = dt.strftime('%d.%m.%Y %H:%M:%S')
+            except:
+                date_str = created_at
+        else:
+            date_str = ''
+        
+        # Обработка разных типов транзакций
+        if tx_type in ['deposit', 'withdrawal']:
+            # Депозит/вывод
+            writer.writerow([
+                date_str,
+                type_mapping.get(tx_type, tx_type),
+                tx.get('from_asset', ''),
+                tx.get('amount_from', 0),
+                '',
+                '',
+                '',
+                '',
+                '',
+                '',
+                tx.get('note', '')
+            ])
+        else:
+            # Обмен
+            writer.writerow([
+                date_str,
+                type_mapping.get(tx_type, tx_type),
+                tx.get('from_asset', ''),
+                tx.get('amount_from', 0),
+                tx.get('to_asset', ''),
+                tx.get('amount_to_final', 0),
+                tx.get('rate_used', 0),
+                tx.get('fee_percent', 0),
+                tx.get('realized_profit', 0),
+                tx.get('profit_currency', ''),
+                tx.get('note', '')
+            ])
+    
+    # Возвращаем CSV файл
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f"attachment; filename=transactions_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        }
+    )
+
+
+@router.get("/export/csv/simple")
+def export_transactions_simple_csv():
+    """Упрощенный экспорт: только принял/выдал"""
+    # Получаем все транзакции
+    txs = list(db.transactions.find().sort("created_at", 1))
+    
+    # Создаем StringIO для записи CSV
+    output = StringIO()
+    writer = csv.writer(output, delimiter=';')
+    
+    # Заголовки
+    writer.writerow([
+        'Дата',
+        'Время',
+        'Принял',
+        'Выдал',
+        'Прибыль',
+        'Примечание'
+    ])
+    
+    # Заполняем данные
+    for tx in txs:
+        tx_type = tx.get('type', '')
+        created_at = tx.get('created_at', '')
+        
+        # Форматируем дату и время
+        if isinstance(created_at, datetime):
+            date_str = created_at.strftime('%d.%m.%Y')
+            time_str = created_at.strftime('%H:%M:%S')
+        elif isinstance(created_at, str):
+            try:
+                dt = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+                date_str = dt.strftime('%d.%m.%Y')
+                time_str = dt.strftime('%H:%M:%S')
+            except:
+                date_str = created_at
+                time_str = ''
+        else:
+            date_str = ''
+            time_str = ''
+        
+        # Формируем строки "Принял" и "Выдал"
+        if tx_type == 'deposit':
+            received = f"{tx.get('amount_from', 0)} {tx.get('from_asset', '')}"
+            given = ''
+            profit = ''
+        elif tx_type == 'withdrawal':
+            received = ''
+            given = f"{abs(tx.get('amount_from', 0))} {tx.get('from_asset', '')}"
+            profit = ''
+        else:
+            # Обмен
+            received = f"{tx.get('amount_from', 0)} {tx.get('from_asset', '')}"
+            given = f"{tx.get('amount_to_final', 0)} {tx.get('to_asset', '')}"
+            
+            # Прибыль
+            realized_profit = tx.get('realized_profit', 0)
+            profit_currency = tx.get('profit_currency', '')
+            if realized_profit and realized_profit != 0:
+                profit = f"{realized_profit} {profit_currency}"
+            else:
+                profit = ''
+        
+        writer.writerow([
+            date_str,
+            time_str,
+            received,
+            given,
+            profit,
+            tx.get('note', '')
+        ])
+    
+    # Возвращаем CSV файл
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f"attachment; filename=transactions_simple_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        }
+    )
 
 
 @router.get("/fiat-lots")
