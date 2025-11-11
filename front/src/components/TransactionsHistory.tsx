@@ -795,23 +795,23 @@ export function TransactionsHistory() {
         </button>
 
         {calculatorOpen && (
-          <div className="border-t p-4 space-y-3 bg-gray-50">
+          <div className="border-t p-3 sm:p-4 space-y-3 bg-gray-50">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-2">
                 Введите выражение (например: 1000 * 1.05 + 50)
               </label>
-              <div className="flex items-center gap-3">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
                 <input
                   type="text"
                   value={calculatorInput}
                   onChange={(e) => handleCalculatorInput(e.target.value)}
                   placeholder="Например: 100 + 50 * 2 - (25 / 5)"
-                  className="flex-1 px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                  className="flex-1 px-3 sm:px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs sm:text-sm"
                 />
                 {calculatorResult && (
-                  <div className="flex items-center gap-2 text-lg font-bold">
-                    <span className="text-gray-600">=</span>
-                    <span className="text-blue-600 min-w-[100px] text-right">
+                  <div className="flex items-center gap-2 font-bold bg-white p-2 rounded-lg border border-blue-200 w-full sm:w-auto">
+                    <span className="text-gray-600 text-xs sm:text-sm">=</span>
+                    <span className="text-blue-600 text-sm sm:text-lg flex-1 sm:flex-none text-right sm:min-w-[80px] sm:text-right">
                       {calculatorResult}
                     </span>
                   </div>
@@ -820,12 +820,16 @@ export function TransactionsHistory() {
             </div>
 
             <div className="bg-gray-100 p-2 rounded text-xs text-gray-600 space-y-1">
-              <div>
-                Доступные операции: + (плюс), - (минус), * (умножить), /
-                (делить), ^ или ** (степень)
+              <div className="font-medium text-gray-700 mb-1">Операции:</div>
+              <div className="text-xs sm:text-xs">
+                + (плюс), - (минус), * (умножить), / (делить), ^ или **
+                (степень)
               </div>
-              <div>
-                Функции: sqrt(), sin(), cos(), tan(), abs(), log(), ln() и др.
+              <div className="font-medium text-gray-700 mt-2 mb-1">
+                Функции:
+              </div>
+              <div className="text-xs sm:text-xs">
+                sqrt(), sin(), cos(), tan(), abs(), log(), ln() и др.
               </div>
             </div>
           </div>
