@@ -14,7 +14,12 @@ const API_BASE = config.apiBaseUrl
 // Типы для транзакций
 type Transaction = {
   _id: string
-  type: 'fiat_to_crypto' | 'crypto_to_fiat' | 'deposit' | 'withdrawal'
+  type:
+    | 'fiat_to_crypto'
+    | 'crypto_to_fiat'
+    | 'fiat_to_fiat'
+    | 'deposit'
+    | 'withdrawal'
   from_asset: string
   to_asset: string
   amount_from: number
@@ -26,8 +31,11 @@ type Transaction = {
   modified_at?: string
   is_modified?: boolean
   amount_to_final: number
+  amount_to_clean?: number
   profit: number
   profit_currency: string
+  cost_usdt_of_fiat_in?: number
+  rate_usdt_of_fiat_in?: number
 }
 
 // Компонент для редактирования транзакции
@@ -46,6 +54,7 @@ function EditTransactionModal({
     type: 'fiat_to_crypto' as
       | 'fiat_to_crypto'
       | 'crypto_to_fiat'
+      | 'fiat_to_fiat'
       | 'deposit'
       | 'withdrawal',
     from_asset: 'USD',
@@ -126,6 +135,7 @@ function EditTransactionModal({
                   type: e.target.value as
                     | 'fiat_to_crypto'
                     | 'crypto_to_fiat'
+                    | 'fiat_to_fiat'
                     | 'deposit'
                     | 'withdrawal',
                 })
@@ -134,6 +144,7 @@ function EditTransactionModal({
             >
               <option value="fiat_to_crypto">Фиат в Крипто</option>
               <option value="crypto_to_fiat">Крипто в Фиат</option>
+              <option value="fiat_to_fiat">Фиат в Фиат</option>
               <option value="deposit">Пополнение</option>
               <option value="withdrawal">Вычет</option>
             </select>
@@ -526,6 +537,8 @@ export function TransactionsHistory() {
         ? 'Фиат в Крипто'
         : tx.type === 'crypto_to_fiat'
         ? 'Крипто в Фиат'
+        : tx.type === 'fiat_to_fiat'
+        ? 'Фиат в Фиат'
         : tx.type === 'deposit'
         ? 'Пополнение'
         : 'Вычет'
@@ -534,6 +547,8 @@ export function TransactionsHistory() {
         ? 'bg-blue-100 text-blue-700'
         : tx.type === 'crypto_to_fiat'
         ? 'bg-orange-100 text-orange-700'
+        : tx.type === 'fiat_to_fiat'
+        ? 'bg-purple-100 text-purple-700'
         : tx.type === 'deposit'
         ? 'bg-green-100 text-green-700'
         : 'bg-red-100 text-red-700'
@@ -595,6 +610,8 @@ export function TransactionsHistory() {
               <span className="font-medium">Комиссия:</span>{' '}
               {tx.type === 'fiat_to_crypto'
                 ? `-${tx.fee_percent}%`
+                : tx.type === 'fiat_to_fiat'
+                ? 'нет'
                 : `+${tx.fee_percent}%`}
             </div>
             {tx.rate_for_gleb_pnl && (
@@ -604,6 +621,18 @@ export function TransactionsHistory() {
                   {tx.rate_for_gleb_pnl?.toFixed(4)}
                 </div>
                 <div></div>
+              </>
+            )}
+            {tx.cost_usdt_of_fiat_in && (
+              <>
+                <div>
+                  <span className="font-medium">Сб.USDT:</span>{' '}
+                  {tx.cost_usdt_of_fiat_in?.toFixed(2)}
+                </div>
+                <div>
+                  <span className="font-medium">Курс USDT:</span>{' '}
+                  {tx.rate_usdt_of_fiat_in?.toFixed(4)}
+                </div>
               </>
             )}
           </div>
@@ -881,6 +910,9 @@ export function TransactionsHistory() {
                   Прибыль{' '}
                   {sortBy === 'profit' && (sortOrder === 'asc' ? '↑' : '↓')}
                 </th>
+                <th className="px-4 py-3 text-right text-sm font-medium text-gray-700">
+                  Сб. USDT
+                </th>
                 <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">
                   Пометка
                 </th>
@@ -909,6 +941,8 @@ export function TransactionsHistory() {
                             ? 'bg-blue-100 text-blue-700'
                             : tx.type === 'crypto_to_fiat'
                             ? 'bg-orange-100 text-orange-700'
+                            : tx.type === 'fiat_to_fiat'
+                            ? 'bg-purple-100 text-purple-700'
                             : tx.type === 'deposit'
                             ? 'bg-green-100 text-green-700'
                             : 'bg-red-100 text-red-700'
@@ -918,6 +952,8 @@ export function TransactionsHistory() {
                           ? 'Фиат в Крипто'
                           : tx.type === 'crypto_to_fiat'
                           ? 'Крипто в Фиат'
+                          : tx.type === 'fiat_to_fiat'
+                          ? 'Фиат в Фиат'
                           : tx.type === 'deposit'
                           ? 'Пополнение'
                           : 'Вычет'}
@@ -956,6 +992,8 @@ export function TransactionsHistory() {
                         ? '-'
                         : tx.type === 'fiat_to_crypto'
                         ? `-${tx.fee_percent}%`
+                        : tx.type === 'fiat_to_fiat'
+                        ? 'нет'
                         : `+${tx.fee_percent}%`}
                     </td>
                     <td
@@ -971,6 +1009,11 @@ export function TransactionsHistory() {
                         ? '-'
                         : tx.profit?.toFixed(2)}{' '}
                       {tx.profit_currency}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-right">
+                      {tx.cost_usdt_of_fiat_in
+                        ? tx.cost_usdt_of_fiat_in.toFixed(2)
+                        : '-'}
                     </td>
                     <td className="px-4 py-3 text-sm max-w-xs">
                       <div className="truncate" title={tx.note || ''}>
@@ -1000,7 +1043,7 @@ export function TransactionsHistory() {
               ) : (
                 <tr>
                   <td
-                    colSpan={11}
+                    colSpan={12}
                     className="px-4 py-8 text-center text-gray-500"
                   >
                     Транзакций пока нет

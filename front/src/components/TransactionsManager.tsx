@@ -243,6 +243,7 @@ export function TransactionsManager({
             >
               <option value="fiat_to_crypto">Фиат в Крипто</option>
               <option value="crypto_to_fiat">Крипто в Фиат</option>
+              <option value="fiat_to_fiat">Фиат в Фиат</option>
             </select>
           </div>
 

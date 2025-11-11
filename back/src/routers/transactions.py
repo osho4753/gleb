@@ -15,7 +15,7 @@ router = APIRouter(prefix="/transactions", tags=["transactions"])
 @router.post("")
 def create_transaction(tx: Transaction):
     # --- Проверки ---
-    if tx.type not in ["fiat_to_crypto", "crypto_to_fiat"]:
+    if tx.type not in ["fiat_to_crypto", "crypto_to_fiat", "fiat_to_fiat"]:
         raise HTTPException(status_code=400, detail="Invalid transaction type")
 
     if tx.type == "fiat_to_crypto" and tx.from_asset in SPECIAL_FIAT:
@@ -27,6 +27,10 @@ def create_transaction(tx: Transaction):
     elif tx.type == "crypto_to_fiat" and tx.to_asset == "EUR":
         # Все остальные случаи → стандартно умножаем
         tx.amount_to_clean = tx.amount_from / tx.rate_used
+    elif tx.type == "fiat_to_fiat":
+        # Обмен фиата на фиат: amount_to_final = amount_from / rate_used
+        tx.amount_to_clean = tx.amount_from / tx.rate_used
+        tx.amount_to_final = round(tx.amount_to_clean)
     else:
         tx.amount_to_clean = tx.amount_from * tx.rate_used
 
@@ -51,6 +55,13 @@ def create_transaction(tx: Transaction):
             tx.rate_for_gleb_pnl =  tx.rate_used * (1 + (tx.fee_percent / 100))
         elif tx.from_asset == "EUR":
             tx.rate_for_gleb_pnl =  tx.rate_used / (1 + (tx.fee_percent / 100))
+    
+    elif tx.type == "fiat_to_fiat":
+        # Обмен фиата на фиат: комиссия = 0
+        tx.fee_amount = 0.0
+        tx.fee_percent = 0.0
+        tx.rate_for_gleb_pnl = 0.0
+        fee_direction = "none"
      
 
     from_cash = db.cash.find_one({"asset": tx.from_asset})
@@ -69,6 +80,8 @@ def create_transaction(tx: Transaction):
         tx.profit_currency = tx.to_asset  # клиент получает фиат → прибыль в нём
     elif tx.type == "fiat_to_crypto":
         tx.profit_currency = tx.from_asset  # клиент платит фиат → прибыль в нём
+    elif tx.type == "fiat_to_fiat":
+        tx.profit_currency = "USDT"  # PnL от fiat_to_fiat считается в USDT
     
     if tx.type == "fiat_to_crypto":
         # клиент отдаёт фиат, получает крипту
@@ -104,11 +117,73 @@ def create_transaction(tx: Transaction):
         if to_cash["balance"] < tx.amount_to_final:
             raise HTTPException(status_code=400, detail=f"Not enough {tx.to_asset} in cash")
     
+    elif tx.type == "fiat_to_fiat":
+        # Обмен фиата на фиат
+        # Проверяем баланс from_asset
+        if from_cash["balance"] < tx.amount_from:
+            raise HTTPException(status_code=400, detail=f"Not enough {tx.from_asset} in cash")
+    
     # --- Подсчёт реализованной прибыли ---
     realized_profit = 0.0
 
-    if tx.type == "crypto_to_fiat" and tx.from_asset == "USDT" and tx.to_asset in FIAT_ASSETS:
-        # Новая логика FIFO по фиатным лотам
+    if tx.type == "fiat_to_fiat" and tx.from_asset in FIAT_ASSETS:
+        # FIFO расчет себестоимости to_asset в USDT
+        # Для fiat_to_fiat PnL не рассчитывается! Это просто обмен.
+        # PnL будет рассчитана позже, когда we sell this to_asset через crypto_to_fiat
+        def D(x):
+            return Decimal(str(x))
+        
+        from_asset_currency = tx.from_asset
+        fiat_out_fact = D(tx.amount_from)           # сколько фиата отдали (CZK)
+        to_fiat_in = D(tx.amount_to_final)          # сколько фиata получили (EUR)
+        
+        # Просто накапливаем себестоимость для to_asset (EUR)
+        need = fiat_out_fact
+        eps = D("0.0000001")
+        cost_usdt_total = D(0)  # Себестоимость EUR в USDT
+        
+        while need > eps:
+            lot = db.fiat_lots.find_one(
+                {"currency": from_asset_currency, "remaining": {"$gt": 0}},
+                sort=[("created_at", 1)]
+            )
+            if not lot:
+                print(f"WARNING: No {from_asset_currency} lots available for FIFO calculation in fiat_to_fiat")
+                break
+            
+            lot_rem = D(lot["remaining"])
+            lot_rate = D(lot["rate"])  # CZK/USDT курс при исходной покупке
+            take = lot_rem if lot_rem <= need else need
+            matched_usdt = take / lot_rate  # сколько USDT эквивалента в этом куске CZK
+            
+            # Себестоимость этой части EUR в USDT
+            cost_piece_usdt = matched_usdt
+            cost_usdt_total += cost_piece_usdt
+            
+            # Update lot
+            new_rem = (lot_rem - take).quantize(D("0.0000001"))
+            db.fiat_lots.update_one({"_id": lot["_id"]}, {"$set": {"remaining": float(new_rem)}})
+            
+            # НЕ логируем PnL для fiat_to_fiat, так как PnL будет при продаже EUR
+            
+            need -= take
+        
+        # Для fiat_to_fiat нет реализованной прибыли
+        realized_profit = 0.0
+        tx.profit_currency = "USDT"
+        
+        # Сохраняем себестоимость to_asset в USDT
+        if cost_usdt_total > eps:
+            rate_usdt_of_fiat_in = to_fiat_in / cost_usdt_total
+            tx.cost_usdt_of_fiat_in = float(cost_usdt_total.quantize(D("0.0001"), rounding=ROUND_HALF_UP))
+            tx.rate_usdt_of_fiat_in = float(rate_usdt_of_fiat_in.quantize(D("0.0001"), rounding=ROUND_HALF_UP))
+        
+        # Обновляем кассу
+        db.cash.update_one({"asset": tx.from_asset}, {"$inc": {"balance": -tx.amount_from}})
+        db.cash.update_one({"asset": tx.to_asset}, {"$inc": {"balance": tx.amount_to_final}})
+
+    elif tx.type == "crypto_to_fiat" and tx.from_asset == "USDT" and tx.to_asset in FIAT_ASSETS:
+        # Двухэтапная логика FIFO по фиатным лотам
         def D(x): 
             return Decimal(str(x))
 
@@ -124,15 +199,19 @@ def create_transaction(tx: Transaction):
         pnl_usdt = D(0)
         need     = fiat_out_fact
         eps      = D("0.0000001")
-
+        
+        # ЭТАП 1: Берём из живых лотов (fiat_to_crypto)
         while need > eps:
             lot = db.fiat_lots.find_one(
-                {"currency": fiat_currency, "remaining": {"$gt": 0}},
+                {
+                    "currency": fiat_currency,
+                    "remaining": {"$gt": 0},
+                    "meta.source": "fiat_to_crypto"  # Только живые лоты
+                },
                 sort=[("created_at", 1)]
             )
             if not lot:
-                # Нет лотов для данной валюты - прибыль = 0, выходим из цикла
-                print(f"WARNING: No {fiat_currency} lots available for FIFO calculation")
+                # Больше нет живых лотов, переходим на этап 2
                 break
 
             lot_rem  = D(lot["remaining"])
@@ -156,13 +235,72 @@ def create_transaction(tx: Transaction):
             db.pnl_matches.insert_one({
                 "currency": fiat_currency,
                 "open_lot_id": str(lot["_id"]),
-                "close_tx_id": None,  # при желании заполни своим id
+                "close_tx_id": None,
+                "stage": 1,  # этап 1 - живые лоты
                 "fiat_used": float(take),
                 "matched_usdt": float(matched_usdt),
                 "lot_rate": float(lot_rate),
                 "sell_rate_eff": float(sell_rate_eff),
                 "pnl_fiat": float(pnl_piece_fiat),
                 "pnl_usdt": float(pnl_piece_usdt),
+                "created_at": datetime.utcnow()
+            })
+
+            need -= take
+        
+        # ЭТАП 2: Если осталась потребность - берём из лотов fiat_to_fiat (обменных пунктов)
+        while need > eps:
+            lot = db.fiat_lots.find_one(
+                {
+                    "currency": fiat_currency,
+                    "remaining": {"$gt": 0},
+                    "meta.source": "fiat_to_fiat"  # Лоты из обменных пунктов
+                },
+                sort=[("created_at", 1)]
+            )
+            if not lot:
+                # Нет лотов для данной валюты - выходим из цикла
+                print(f"WARNING: No {fiat_currency} fiat_to_fiat lots available for stage 2")
+                break
+
+            lot_rem  = D(lot["remaining"])
+            
+            # Для fiat_to_fiat лотов используем cost_usdt_of_fiat_in для PnL расчета
+            cost_usdt_of_fiat_in = D(str(lot["meta"].get("cost_usdt_of_fiat_in", 0)))
+            
+            # Курс лота = фиат / cost_usdt (сколько фиата на 1 USDT)
+            if cost_usdt_of_fiat_in > 0:
+                lot_rate = lot_rem / cost_usdt_of_fiat_in
+            else:
+                lot_rate = D(lot["rate"])  # fallback to stored rate
+            
+            take = lot_rem if lot_rem <= need else need
+            matched_usdt = take / sell_rate_eff  # сколько USDT закрываем этим куском
+
+            # PnL расчет для fiat_to_fiat лотов
+            pnl_piece_fiat = (lot_rate - sell_rate_eff) * matched_usdt
+            pnl_piece_usdt = pnl_piece_fiat / sell_rate_eff
+
+            pnl_fiat += pnl_piece_fiat
+            pnl_usdt += pnl_piece_usdt
+
+            # уменьшаем остаток лота
+            new_rem = (lot_rem - take).quantize(D("0.0000001"))
+            db.fiat_lots.update_one({"_id": lot["_id"]}, {"$set": {"remaining": float(new_rem)}})
+
+            # лог матчинга
+            db.pnl_matches.insert_one({
+                "currency": fiat_currency,
+                "open_lot_id": str(lot["_id"]),
+                "close_tx_id": None,
+                "stage": 2,  # этап 2 - обменные пункты
+                "fiat_used": float(take),
+                "matched_usdt": float(matched_usdt),
+                "lot_rate": float(lot_rate),
+                "sell_rate_eff": float(sell_rate_eff),
+                "pnl_fiat": float(pnl_piece_fiat),
+                "pnl_usdt": float(pnl_piece_usdt),
+                "cost_usdt_of_fiat_in": float(cost_usdt_of_fiat_in),
                 "created_at": datetime.utcnow()
             })
 
@@ -176,6 +314,31 @@ def create_transaction(tx: Transaction):
         tx.profit_currency = fiat_currency
         # tx.profit_usdt = float(realized_profit_usdt)   # можно добавить в модель при необходимости
 
+    # Для fiat_to_fiat: создаём лот для to_asset (EUR) с сохранённой себестоимостью в USDT
+    # Этот лот будет использован на следующем этапе (в crypto_to_fiat)
+    if tx.type == "fiat_to_fiat" and tx.cost_usdt_of_fiat_in and tx.cost_usdt_of_fiat_in > 0:
+        def D(x): 
+            return Decimal(str(x))
+        
+        fiat_currency_to = tx.to_asset
+        fiat_in_fact_to = D(str(tx.amount_to_final))
+        
+        # Курс to_asset/USDT на основе себестоимости
+        lot_rate_to = fiat_in_fact_to / D(str(tx.cost_usdt_of_fiat_in))
+        
+        db.fiat_lots.insert_one({
+            "currency": fiat_currency_to,
+            "remaining": float(fiat_in_fact_to),
+            "rate": float(lot_rate_to),
+            "tx_id": None,  # будем заполнять после создания транзакции
+            "created_at": datetime.utcnow(),
+            "meta": {
+                "source": "fiat_to_fiat",
+                "cost_usdt_of_fiat_in": float(tx.cost_usdt_of_fiat_in),
+                "rate_usdt_of_fiat_in": float(tx.rate_usdt_of_fiat_in)
+            }
+        })
+    
     # Обновляем кассу ТОЛЬКО после успешного расчета прибыли (если это crypto_to_fiat)
     if tx.type == "crypto_to_fiat":
         db.cash.update_one({"asset": tx.to_asset}, {"$inc": {"balance": -tx.amount_to_final}})

@@ -15,6 +15,8 @@ class Transaction(BaseModel):
     rate_for_gleb_pnl: Optional[float] = None
     profit: Optional[float] = None
     profit_currency : Optional[str] = None
+    cost_usdt_of_fiat_in: Optional[float] = None  # Себестоимость to_asset в USDT (для fiat_to_fiat)
+    rate_usdt_of_fiat_in: Optional[float] = None  # Курс себестоимости to_asset/USDT (для fiat_to_fiat)
     note: Optional[str] = ""      # Поле для пометок к транзакции
     is_modified: Optional[bool] = False  # Флаг изменения транзакции
     modified_at: Optional[datetime] = None  # Время последнего изменения
