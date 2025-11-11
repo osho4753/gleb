@@ -1,7 +1,13 @@
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
-import { RefreshCwIcon, EditIcon, TrashIcon } from 'lucide-react'
+import {
+  RefreshCwIcon,
+  EditIcon,
+  TrashIcon,
+  ChevronDownIcon,
+} from 'lucide-react'
 import { config } from '../config'
+import { evaluate } from 'mathjs'
 
 const API_BASE = config.apiBaseUrl
 
@@ -268,6 +274,11 @@ export function TransactionsHistory() {
   const [editingTransaction, setEditingTransaction] =
     useState<Transaction | null>(null)
 
+  // Состояние для калькулятора
+  const [calculatorInput, setCalculatorInput] = useState('')
+  const [calculatorOpen, setCalculatorOpen] = useState(false)
+  const [calculatorResult, setCalculatorResult] = useState<string | null>(null)
+
   // Пагинация и сортировка
   const [currentPage, setCurrentPage] = useState(1)
   const [itemsPerPage, setItemsPerPage] = useState(10)
@@ -367,8 +378,6 @@ export function TransactionsHistory() {
       )
     )
       return
-
-    // Двойное подтверждение для такого серьёзного действия
     if (
       !confirm(
         'Последнее предупреждение! Все транзакции будут безвозвратно удалены. Продолжить?'
@@ -493,6 +502,23 @@ export function TransactionsHistory() {
     setIsEditModalOpen(true)
   }
 
+  // Функция для расчета выражения
+  const handleCalculatorInput = (value: string) => {
+    setCalculatorInput(value)
+    if (!value.trim()) {
+      setCalculatorResult(null)
+      return
+    }
+    try {
+      const result = evaluate(value)
+      setCalculatorResult(
+        typeof result === 'number' ? result.toString() : JSON.stringify(result)
+      )
+    } catch (error) {
+      setCalculatorResult(null)
+    }
+  }
+
   // Компонент карточки транзакции для мобильных устройств
   const TransactionCard = ({ tx }: { tx: Transaction }) => {
     const typeLabel =
@@ -566,7 +592,10 @@ export function TransactionsHistory() {
               <span className="font-medium">Курс:</span> {tx.rate_used}
             </div>
             <div>
-              <span className="font-medium">Комиссия:</span> {tx.fee_percent}%
+              <span className="font-medium">Комиссия:</span>{' '}
+              {tx.type === 'fiat_to_crypto'
+                ? `-${tx.fee_percent}%`
+                : `+${tx.fee_percent}%`}
             </div>
             {tx.rate_for_gleb_pnl && (
               <>
@@ -722,6 +751,57 @@ export function TransactionsHistory() {
           </div>
         </div>
       </div>
+      <div className="bg-white border rounded-lg">
+        <button
+          onClick={() => setCalculatorOpen(!calculatorOpen)}
+          className="w-full px-4 py-3 flex items-center justify-between hover:bg-gray-50 transition-colors"
+        >
+          <span className="font-medium text-gray-700">Быстрый Калькулятор</span>
+          <ChevronDownIcon
+            size={20}
+            className={`text-gray-600 transition-transform ${
+              calculatorOpen ? 'rotate-180' : ''
+            }`}
+          />
+        </button>
+
+        {calculatorOpen && (
+          <div className="border-t p-4 space-y-3 bg-gray-50">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Введите выражение (например: 1000 * 1.05 + 50)
+              </label>
+              <div className="flex items-center gap-3">
+                <input
+                  type="text"
+                  value={calculatorInput}
+                  onChange={(e) => handleCalculatorInput(e.target.value)}
+                  placeholder="Например: 100 + 50 * 2 - (25 / 5)"
+                  className="flex-1 px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                />
+                {calculatorResult && (
+                  <div className="flex items-center gap-2 text-lg font-bold">
+                    <span className="text-gray-600">=</span>
+                    <span className="text-blue-600 min-w-[100px] text-right">
+                      {calculatorResult}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="bg-gray-100 p-2 rounded text-xs text-gray-600 space-y-1">
+              <div>
+                Доступные операции: + (плюс), - (минус), * (умножить), /
+                (делить), ^ или ** (степень)
+              </div>
+              <div>
+                Функции: sqrt(), sin(), cos(), tan(), abs(), log(), ln() и др.
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Мобильный вид: Карточки (показываются только на маленьких экранах) */}
       <div className="md:hidden space-y-3">
@@ -874,7 +954,9 @@ export function TransactionsHistory() {
                     <td className="px-4 py-3 text-sm text-right">
                       {tx.type === 'deposit' || tx.type === 'withdrawal'
                         ? '-'
-                        : `${tx.fee_percent}%`}
+                        : tx.type === 'fiat_to_crypto'
+                        ? `-${tx.fee_percent}%`
+                        : `+${tx.fee_percent}%`}
                     </td>
                     <td
                       className={`px-4 py-3 text-sm text-right font-medium ${

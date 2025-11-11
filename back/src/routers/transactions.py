@@ -14,15 +14,6 @@ router = APIRouter(prefix="/transactions", tags=["transactions"])
 
 @router.post("")
 def create_transaction(tx: Transaction):
-    """
-    Создание транзакции:
-    - активы (crypto): USDT, BTC, ETH и т.д.
-    - товар (fiat): USD, EUR, CZK
-    - при crypto_to_fiat — комиссия ДОПЛАЧИВАЕТСЯ
-    - при fiat_to_crypto — комиссия УДЕРЖИВАЕТСЯ
-    - прибыль считается при замыкании цикла (продажа кэша)
-    """
-
     # --- Проверки ---
     if tx.type not in ["fiat_to_crypto", "crypto_to_fiat"]:
         raise HTTPException(status_code=400, detail="Invalid transaction type")

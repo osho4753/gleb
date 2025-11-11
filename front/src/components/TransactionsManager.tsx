@@ -23,6 +23,47 @@ export function TransactionsManager({
   })
   const currencies = ['USD', 'USDT', 'EUR', 'CZK']
 
+  // Состояние для модального окна пополнения кассы
+  const [insufficientFundsModal, setInsufficientFundsModal] = useState({
+    isOpen: false,
+    asset: '',
+    currentBalance: 0,
+    requiredAmount: 0,
+    shortfall: 0,
+  })
+  const [replenishmentAmount, setReplenishmentAmount] = useState('')
+  const [replenishmentNote, setReplenishmentNote] = useState('')
+  const [replenishing, setReplenishing] = useState(false)
+
+  // Предустановки для быстрой навигации
+  const presets = [
+    { from: 'USD', to: 'USDT' },
+    { from: 'EUR', to: 'USDT' },
+    { from: 'CZK', to: 'USDT' },
+    { from: 'USDT', to: 'USD' },
+    { from: 'USDT', to: 'EUR' },
+    { from: 'USDT', to: 'CZK' },
+  ]
+
+  const loadPreset = (preset: (typeof presets)[0]) => {
+    // Определяем тип транзакции на основе пары валют
+    const fiatCurrencies = ['USD', 'EUR', 'CZK']
+
+    const isFromFiat = fiatCurrencies.includes(preset.from)
+    const isToFiat = fiatCurrencies.includes(preset.to)
+
+    const transactionType =
+      isFromFiat && !isToFiat ? 'fiat_to_crypto' : 'crypto_to_fiat'
+
+    setFormData({
+      ...formData,
+      type: transactionType,
+      from_asset: preset.from,
+      to_asset: preset.to,
+      fee_percent: '1',
+    })
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!formData.amount_from || !formData.rate_used) {
@@ -56,12 +97,94 @@ export function TransactionsManager({
         })
       } else {
         const error = await res.json()
-        toast.error(error.detail || 'Не удалось создать транзакцию')
+
+        // Проверяем, это ошибка недостаточности средств
+        if (error.detail && error.detail.includes('Not enough')) {
+          // Парсим название актива из ошибки
+          const assetMatch = error.detail.match(/Not enough (\w+)/)
+          const asset = assetMatch ? assetMatch[1] : formData.to_asset
+
+          // Получаем текущий баланс кассы
+          try {
+            const cashRes = await fetch(`${API_BASE}/cash/status`)
+            if (cashRes.ok) {
+              const cashData = await cashRes.json()
+              const currentBalance = cashData.cash[asset] || 0
+
+              // Вычисляем недостаток
+              const requiredAmount =
+                formData.type === 'fiat_to_crypto'
+                  ? Math.ceil(
+                      (parseFloat(formData.amount_from) *
+                        parseFloat(formData.rate_used)) /
+                        (1 + parseFloat(formData.fee_percent) / 100)
+                    )
+                  : Math.ceil(
+                      parseFloat(formData.amount_from) *
+                        parseFloat(formData.rate_used) *
+                        (1 + parseFloat(formData.fee_percent) / 100)
+                    )
+              const shortfall = requiredAmount - currentBalance
+
+              setInsufficientFundsModal({
+                isOpen: true,
+                asset,
+                currentBalance,
+                requiredAmount,
+                shortfall: Math.max(0, shortfall),
+              })
+            }
+          } catch (e) {
+            toast.error('Не удалось получить информацию о кассе')
+          }
+        } else {
+          toast.error(error.detail || 'Не удалось создать транзакцию')
+        }
       }
     } catch (error) {
       toast.error('Ошибка при создании транзакции')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleReplenishCash = async () => {
+    const amount = parseFloat(replenishmentAmount)
+    if (!amount || amount <= 0) {
+      toast.error('Укажите сумму пополнения')
+      return
+    }
+
+    setReplenishing(true)
+    try {
+      const res = await fetch(`${API_BASE}/cash/deposit`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          asset: insufficientFundsModal.asset,
+          amount: amount,
+          note: replenishmentNote,
+          created_at: new Date().toISOString(),
+        }),
+      })
+
+      if (res.ok) {
+        toast.success(
+          `Касса пополнена на ${amount} ${insufficientFundsModal.asset}`
+        )
+        setInsufficientFundsModal({ ...insufficientFundsModal, isOpen: false })
+        setReplenishmentAmount('')
+        setReplenishmentNote('')
+      } else {
+        const error = await res.json()
+        toast.error(error.detail || 'Не удалось пополнить кассу')
+      }
+    } catch (error) {
+      toast.error('Ошибка при пополнении кассы')
+    } finally {
+      setReplenishing(false)
     }
   }
 
@@ -75,6 +198,30 @@ export function TransactionsManager({
       {/* ФОРМА: Создание транзакции */}
       <div className="bg-gray-50 p-4 sm:p-6 rounded-lg">
         <h3 className="text-lg font-semibold mb-4">Создать Транзакцию</h3>
+
+        {/* БЫСТРАЯ НАВИГАЦИЯ: Кнопки для предустановок */}
+        <div className="mb-6 pb-6 border-b">
+          <p className="text-sm font-medium text-gray-700 mb-3">
+            Быстрая навигация:
+          </p>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            {presets.map((preset, idx) => (
+              <button
+                key={idx}
+                type="button"
+                onClick={() => loadPreset(preset)}
+                className="px-3 py-2 bg-white border-2 border-gray-300 rounded-lg text-sm font-medium text-gray-800 hover:bg-blue-50 hover:border-blue-400 transition-colors text-center"
+              >
+                {preset.from}
+                <br />
+                <span className="text-xs text-gray-500">→</span>
+                <br />
+                {preset.to}
+              </button>
+            ))}
+          </div>
+        </div>
+
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-sm font-medium mb-2">
@@ -181,19 +328,42 @@ export function TransactionsManager({
             <label className="block text-sm font-medium mb-2">
               Процент Комиссии
             </label>
-            <input
-              type="number"
-              step="0.1"
-              value={formData.fee_percent}
-              onChange={(e) =>
-                setFormData({
-                  ...formData,
-                  fee_percent: e.target.value,
-                })
-              }
-              placeholder="Введите % комиссии"
-              className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-            />
+            <div className="space-y-2">
+              <input
+                type="number"
+                step="0.1"
+                value={formData.fee_percent}
+                onChange={(e) =>
+                  setFormData({
+                    ...formData,
+                    fee_percent: e.target.value,
+                  })
+                }
+                placeholder="Введите % комиссии"
+                className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+              />
+              <div className="flex gap-2 flex-wrap">
+                {[0, 0.5, 1, 1.5, 2, 2.5].map((percent) => (
+                  <button
+                    key={percent}
+                    type="button"
+                    onClick={() =>
+                      setFormData({
+                        ...formData,
+                        fee_percent: percent.toString(),
+                      })
+                    }
+                    className={`px-3 py-1 rounded text-sm font-medium transition-colors ${
+                      formData.fee_percent === percent.toString()
+                        ? 'bg-blue-500 text-white'
+                        : 'bg-gray-200 text-gray-800 hover:bg-gray-300'
+                    }`}
+                  >
+                    {percent}%
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
           <div>
             <label className="block text-sm font-medium mb-2">Пометка</label>
@@ -236,6 +406,98 @@ export function TransactionsManager({
             >
               Посмотреть Историю
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* МОДАЛЬНОЕ ОКНО: Пополнение кассы */}
+      {insufficientFundsModal.isOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white p-6 rounded-lg max-w-md w-full space-y-4">
+            <h3 className="text-lg font-semibold text-red-600">
+              ⚠️ Недостаточно средств
+            </h3>
+
+            <div className="bg-red-50 border border-red-200 p-4 rounded space-y-3">
+              <div className="flex justify-between items-center"></div>
+              <div className="flex justify-between items-center">
+                <span className="text-gray-700">В кассе сейчас:</span>
+                <span className="font-bold">
+                  {insufficientFundsModal.currentBalance.toFixed(2)}{' '}
+                  {insufficientFundsModal.asset}
+                </span>
+              </div>
+              <div className="border-t pt-3 flex justify-between items-center">
+                <span className="text-red-600 font-semibold">Недостаток:</span>
+                <span className="font-bold text-red-600 text-lg">
+                  {insufficientFundsModal.shortfall.toFixed(2)}{' '}
+                  {insufficientFundsModal.asset}
+                </span>
+              </div>
+            </div>
+
+            <p className="text-sm text-gray-600">
+              Пополните кассу {insufficientFundsModal.asset}, чтобы продолжить
+              транзакцию
+            </p>
+
+            <div>
+              <label className="block text-sm font-medium mb-2">
+                Сумма пополнения ({insufficientFundsModal.asset})
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="number"
+                  step="0.01"
+                  value={replenishmentAmount}
+                  onChange={(e) => setReplenishmentAmount(e.target.value)}
+                  className="flex-1 px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                />
+              </div>
+              <p className="text-xs text-gray-500 mt-1">
+                Необходимо минимум:{' '}
+                {insufficientFundsModal.shortfall.toFixed(2)}{' '}
+                {insufficientFundsModal.asset}
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-2">
+                Пометка (необязательно)
+              </label>
+              <textarea
+                value={replenishmentNote}
+                onChange={(e) => setReplenishmentNote(e.target.value)}
+                placeholder="Например: Получено от клиента, Пополнение картой и т.д."
+                rows={3}
+                className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+              />
+            </div>
+
+            <div className="flex gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setInsufficientFundsModal({
+                    ...insufficientFundsModal,
+                    isOpen: false,
+                  })
+                  setReplenishmentAmount('')
+                  setReplenishmentNote('')
+                }}
+                className="flex-1 px-4 py-2 bg-gray-300 text-gray-800 rounded-lg hover:bg-gray-400 font-medium"
+              >
+                Отмена
+              </button>
+              <button
+                type="button"
+                onClick={handleReplenishCash}
+                disabled={replenishing}
+                className="flex-1 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:opacity-50 font-medium"
+              >
+                {replenishing ? 'Пополнение...' : 'Пополнить кассу'}
+              </button>
+            </div>
           </div>
         </div>
       )}
