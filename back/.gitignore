@@ -24,6 +24,10 @@ venv/
 .venv/
 ENV/
 
+# Google Sheets credentials
+credentials/
+*.json
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

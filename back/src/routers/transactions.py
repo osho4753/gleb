@@ -11,6 +11,7 @@ from io import StringIO
 from ..db import db
 from ..models import Transaction, TransactionUpdate
 from ..constants import FIAT_ASSETS, SPECIAL_FIAT
+from ..google_sheets import sheets_manager
 
 router = APIRouter(prefix="/transactions", tags=["transactions"])
 
@@ -360,7 +361,11 @@ def create_transaction(tx: Transaction):
     tx_data["is_modified"] = False
     tx_data["realized_profit"] = float(realized_profit)
 
-    db.transactions.insert_one(tx_data)
+    result = db.transactions.insert_one(tx_data)
+    tx_data["_id"] = result.inserted_id
+    
+    # Добавляем в Google Sheets
+    sheets_manager.add_transaction(tx_data)
 
     return {
         "type": tx.type,
@@ -733,6 +738,10 @@ def update_transaction(transaction_id: str, update_data: TransactionUpdate):
         if result.modified_count > 0:
             updated_tx = db.transactions.find_one({"_id": ObjectId(transaction_id)})
             updated_tx["_id"] = str(updated_tx["_id"])
+            
+            # Обновляем в Google Sheets
+            sheets_manager.update_transaction(transaction_id, updated_tx)
+            
             return {"message": "Transaction updated successfully", "transaction": updated_tx}
         else:
             return {"message": "No changes made to transaction"}
@@ -757,6 +766,9 @@ def delete_transaction(transaction_id: str):
         
         result = db.transactions.delete_one({"_id": ObjectId(transaction_id)})
         if result.deleted_count > 0:
+            # Удаляем из Google Sheets
+            sheets_manager.delete_transaction(transaction_id)
+            
             return {"message": "Transaction deleted successfully", "deleted_id": transaction_id}
         else:
             raise HTTPException(status_code=500, detail="Failed to delete transaction")
