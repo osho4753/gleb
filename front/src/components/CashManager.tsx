@@ -446,27 +446,6 @@ export function CashManager() {
                   </div>
                   <div className="flex gap-2 justify-end">
                     <button
-                      onClick={() => handleOpenEditModal(curr, Number(amt))}
-                      className="p-2 rounded-full text-white bg-blue-500 hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition duration-150"
-                      aria-label={`Редактировать ${curr}`}
-                      disabled={loading}
-                    >
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        width="16"
-                        height="16"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      >
-                        <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" />
-                        <path d="m15 5 4 4" />
-                      </svg>
-                    </button>
-                    <button
                       onClick={() => handleOpenDeleteModal(curr, Number(amt))}
                       className="p-2 rounded-full text-white bg-red-500 hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 transition duration-150"
                       aria-label={`Удалить ${curr}`}
@@ -575,47 +554,6 @@ export function CashManager() {
             </table>
           </div>
         </div>
-
-        {/* --- Edit Balance Modal --- */}
-        <Modal
-          isOpen={isEditModalOpen}
-          title={`Редактировать ${selectedAsset?.asset || 'валюту'}`}
-          onClose={handleCloseModals}
-        >
-          <div className="space-y-4">
-            <p className="text-sm text-gray-600">
-              Текущий баланс: **{selectedAsset?.amount.toFixed(2)}**
-            </p>
-            <div>
-              <label className="block text-sm font-medium mb-1 text-gray-700">
-                Новая сумма для {selectedAsset?.asset}
-              </label>
-              <input
-                type="number"
-                step="0.01"
-                value={editAmount}
-                onChange={(e) => setEditAmount(e.target.value)}
-                placeholder="Введите новую сумму"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-              />
-            </div>
-            <div className="flex justify-end gap-3 pt-2">
-              <button
-                onClick={handleCloseModals}
-                className="px-4 py-2 text-gray-700 bg-gray-200 rounded-lg hover:bg-gray-300 transition"
-              >
-                Отмена
-              </button>
-              <button
-                onClick={handleConfirmEdit}
-                disabled={loading || isNaN(parseFloat(editAmount))}
-                className="px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 disabled:opacity-50 transition"
-              >
-                Сохранить
-              </button>
-            </div>
-          </div>
-        </Modal>
 
         {/* --- Delete Confirmation Modal --- */}
         <Modal
