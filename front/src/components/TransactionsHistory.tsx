@@ -974,11 +974,15 @@ export function TransactionsHistory() {
                     <td className="px-4 py-3 text-sm text-right ">
                       {tx.type === 'withdrawal'
                         ? `${tx.amount_from.toFixed(2)} ${tx.from_asset}`
+                        : tx.type === 'fiat_to_fiat'
+                        ? `-${tx.amount_from?.toFixed(2)} ${tx.from_asset}`
                         : `+${tx.amount_from?.toFixed(2)} ${tx.from_asset}`}
                     </td>
                     <td className="px-4 py-3 text-sm text-right ">
                       {tx.type === 'deposit' || tx.type === 'withdrawal'
                         ? '-'
+                        : tx.type === 'fiat_to_fiat'
+                        ? `+${tx.amount_to_final?.toFixed(2)} ${tx.to_asset}`
                         : `-${tx.amount_to_final?.toFixed(2)} ${tx.to_asset}`}
                     </td>
                     <td className="px-4 py-3 text-sm text-right">
@@ -995,9 +999,13 @@ export function TransactionsHistory() {
                       {tx.type === 'deposit' || tx.type === 'withdrawal'
                         ? '-'
                         : tx.type === 'fiat_to_crypto'
-                        ? `-${tx.fee_percent}%`
+                        ? tx.fee_percent === 0
+                          ? '0%'
+                          : `-${tx.fee_percent}%`
                         : tx.type === 'fiat_to_fiat'
                         ? 'нет'
+                        : tx.fee_percent === 0
+                        ? '0%'
                         : `+${tx.fee_percent}%`}
                     </td>
                     <td
