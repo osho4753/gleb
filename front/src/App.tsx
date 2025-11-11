@@ -4,7 +4,7 @@ import { Dashboard } from './components/Dashboard'
 import { CashManager } from './components/CashManager'
 import { TransactionsManager } from './components/TransactionsManager'
 import { TransactionsHistory } from './components/TransactionsHistory'
-import { FiatLotsManager } from './components/FiatLotsManager'
+import { FiatLotsViewer } from './components/FiatLotsViewer'
 import { PnLMatches } from './components/PnLMatches'
 export function App() {
   const [activeTab, setActiveTab] = useState('dashboard')
@@ -92,7 +92,7 @@ export function App() {
           )}
 
           {activeTab === 'history' && <TransactionsHistory />}
-          {activeTab === 'lots' && <FiatLotsManager />}
+          {activeTab === 'lots' && <FiatLotsViewer />}
           {activeTab === 'pnl' && <PnLMatches />}
         </div>
       </div>
