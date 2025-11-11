@@ -246,8 +246,8 @@ export function TransactionsManager({
             </select>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
+          <div className="grid grid-cols-1 sm:grid-cols-5 gap-2 items-end">
+            <div className="sm:col-span-2">
               <label className="block text-sm font-medium mb-2">
                 Из Актива
               </label>
@@ -268,7 +268,36 @@ export function TransactionsManager({
                 ))}
               </select>
             </div>
-            <div>
+
+            {/* Кнопка свапа активов - в центре */}
+            <div className="flex justify-center">
+              <button
+                type="button"
+                onClick={() => {
+                  // Определяем новый тип транзакции
+                  const fiatCurrencies = ['USD', 'EUR', 'CZK']
+                  const fromIsFiat = fiatCurrencies.includes(formData.to_asset)
+                  const toIsFiat = fiatCurrencies.includes(formData.from_asset)
+                  const newType =
+                    fromIsFiat && !toIsFiat
+                      ? 'fiat_to_crypto'
+                      : 'crypto_to_fiat'
+
+                  setFormData({
+                    ...formData,
+                    type: newType,
+                    from_asset: formData.to_asset,
+                    to_asset: formData.from_asset,
+                  })
+                }}
+                className="px-4 py-2 bg-gradient-to-r from-blue-500 to-blue-900 text-white rounded-lg hover:from-blue-600 hover:to-blue-800 font-bold transition-all text-lg flex items-center justify-center w-12 h-10"
+                title="Поменять активы местами"
+              >
+                ⇅
+              </button>
+            </div>
+
+            <div className="sm:col-span-2">
               <label className="block text-sm font-medium mb-2">В Актив</label>
               <select
                 value={formData.to_asset}
@@ -287,6 +316,7 @@ export function TransactionsManager({
                 ))}
               </select>
             </div>
+
             <div>
               <label className="block text-sm font-medium mb-2">
                 От (Сумма)
