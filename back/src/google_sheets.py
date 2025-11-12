@@ -11,9 +11,12 @@ from .constants import (
     GOOGLE_SHEETS_CREDENTIALS_PATH,
     GOOGLE_SHEETS_SPREADSHEET_ID
 )
+from .db import db
 
 class GoogleSheetsManager:
     """Менеджер для работы с Google Sheets"""
+    
+
     
     def __init__(self):
         self.enabled = GOOGLE_SHEETS_ENABLED
@@ -150,6 +153,7 @@ class GoogleSheetsManager:
             
             # Добавляем строку
             worksheet.append_row(row)
+            
             print(f"✅ Transaction added to Google Sheets: {transaction_data.get('_id')}")
             
         except Exception as e:
@@ -345,6 +349,11 @@ class GoogleSheetsManager:
             
         except Exception as e:
             print(f"❌ Failed to update summary sheet: {e}")
+    
+
+    
+
+
 
 
 # Глобальный экземпляр

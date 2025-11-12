@@ -6,6 +6,7 @@ import {
   TrashIcon,
   ChevronDownIcon,
   DownloadIcon,
+  UndoIcon,
 } from 'lucide-react'
 import { config } from '../config'
 import { evaluate } from 'mathjs'
@@ -534,6 +535,27 @@ export function TransactionsHistory() {
     }
   }
 
+  // Функция отмены последней операции
+  const handleUndo = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/undo`, {
+        method: 'POST',
+      })
+      if (res.ok) {
+        const data = await res.json()
+        toast.success(
+          `Отменено: ${data.restored_description || data.restored_operation}`
+        )
+        fetchTransactions()
+      } else {
+        const error = await res.json()
+        toast.error(error.detail || 'Нет операций для отмены')
+      }
+    } catch (error) {
+      toast.error('Ошибка при отмене операции')
+    }
+  }
+
   // Функция экспорта в CSV
   const handleExportCSV = async (simple = false) => {
     try {
@@ -757,6 +779,16 @@ export function TransactionsHistory() {
             />
             <span className="hidden sm:inline">Обновить</span>
             <span className="sm:hidden">Обновить</span>
+          </button>
+
+          {/* Кнопка Undo */}
+          <button
+            onClick={handleUndo}
+            className="flex items-center justify-center gap-2 px-3 sm:px-4 py-2 bg-orange-500 text-white rounded hover:bg-orange-600 text-sm flex-1 sm:flex-none"
+          >
+            <UndoIcon size={16} />
+            <span className="hidden sm:inline">Отменить</span>
+            <span className="sm:hidden">Отменить</span>
           </button>
 
           {/* Меню экспорта */}

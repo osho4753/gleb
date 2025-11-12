@@ -12,12 +12,19 @@ from ..db import db
 from ..models import Transaction, TransactionUpdate
 from ..constants import FIAT_ASSETS, SPECIAL_FIAT
 from ..google_sheets import sheets_manager
+from ..history_manager import history_manager
 
 router = APIRouter(prefix="/transactions", tags=["transactions"])
 
 
 @router.post("")
 def create_transaction(tx: Transaction):
+    # Сохраняем снимок состояния ПЕРЕД созданием транзакции
+    history_manager.save_snapshot(
+        operation_type="create_transaction",
+        description=f"Creating {tx.type}: {tx.from_asset} → {tx.to_asset}"
+    )
+    
     # --- Проверки ---
     if tx.type not in ["fiat_to_crypto", "crypto_to_fiat", "fiat_to_fiat"]:
         raise HTTPException(status_code=400, detail="Invalid transaction type")
@@ -197,7 +204,7 @@ def create_transaction(tx: Transaction):
         sell_rate       = D(tx.rate_used)                 # FIAT/USDT базовый курс
         
         # Эффективный курс = фактически выданный фиат / полученный USDT
-        sell_rate_eff   = fiat_out_fact / usdt_in_fact
+        sell_rate_eff = fiat_out_fact / usdt_in_fact
 
         pnl_fiat = D(0)
         pnl_usdt = D(0)
@@ -226,7 +233,10 @@ def create_transaction(tx: Transaction):
             # кусочный PnL в валюте лота: (курс лота − курс продажи_эфф) × закрытый USDT
             pnl_piece_fiat = (lot_rate - sell_rate_eff) * matched_usdt
             # для перевода прибыли в USDT используем эффективный курс продажи
-            pnl_piece_usdt = pnl_piece_fiat / sell_rate_eff
+            if fiat_currency == "EUR":
+                pnl_piece_usdt = pnl_piece_fiat * sell_rate_eff  # EUR: умножаем
+            else:
+                pnl_piece_usdt = pnl_piece_fiat / sell_rate_eff  # CZK/USD: делим
 
             pnl_fiat += pnl_piece_fiat
             pnl_usdt += pnl_piece_usdt
@@ -289,7 +299,10 @@ def create_transaction(tx: Transaction):
             # PnL = выручка в USDT - себестоимость в USDT
             pnl_piece_usdt = matched_usdt - cost_usdt_portion
             # Конвертируем PnL в фиат для отображения
-            pnl_piece_fiat = pnl_piece_usdt / sell_rate_eff
+            if fiat_currency == "EUR":
+                pnl_piece_fiat = pnl_piece_usdt * sell_rate_eff  # EUR: умножаем
+            else:
+                pnl_piece_fiat = pnl_piece_usdt / sell_rate_eff  # CZK/USD: делим
 
             pnl_fiat += pnl_piece_fiat
             pnl_usdt += pnl_piece_usdt
@@ -315,6 +328,24 @@ def create_transaction(tx: Transaction):
             })
 
             need -= take
+
+        # ЭТАП 3: Если осталась потребность - значит, она покрывается из депозитов (без PnL)
+        if need > eps:
+            matched_usdt = need / sell_rate_eff
+            db.pnl_matches.insert_one({
+                "currency": fiat_currency,
+                "open_lot_id": "deposit",
+                "close_tx_id": None,
+                "stage": 3,  # этап 3 - депозиты
+                "fiat_used": float(need),
+                "matched_usdt": float(matched_usdt),
+                "lot_rate": float(sell_rate_eff), # Себестоимость равна курсу продажи
+                "sell_rate_eff": float(sell_rate_eff),
+                "pnl_fiat": 0.0, # Депозиты не генерируют PnL
+                "pnl_usdt": 0.0,
+                "created_at": datetime.utcnow()
+            })
+            need = D(0)
 
         # округляем и сохраняем в транзакцию
         realized_profit_fiat = pnl_fiat.quantize(D("0.01"), rounding=ROUND_HALF_UP)
@@ -691,6 +722,12 @@ def update_transaction(transaction_id: str, update_data: TransactionUpdate):
             print(f"Transaction not found: {transaction_id}")  # Логируем если не найдена
             raise HTTPException(status_code=404, detail="Transaction not found")
         
+        # Сохраняем снимок состояния ПЕРЕД обновлением
+        history_manager.save_snapshot(
+            operation_type="update_transaction",
+            description=f"Updating transaction {transaction_id}"
+        )
+        
         # Подготавливаем данные для обновления
         update_fields = {}
         for field, value in update_data.dict(exclude_unset=True).items():
@@ -793,6 +830,12 @@ def delete_transaction(transaction_id: str):
         if not existing_tx:
             print(f"Transaction not found: {transaction_id}")  # Логируем если не найдена
             raise HTTPException(status_code=404, detail="Transaction not found")
+        
+        # Сохраняем снимок состояния ПЕРЕД удалением
+        history_manager.save_snapshot(
+            operation_type="delete_transaction",
+            description=f"Deleting transaction {transaction_id}"
+        )
         
         result = db.transactions.delete_one({"_id": ObjectId(transaction_id)})
         if result.deleted_count > 0:

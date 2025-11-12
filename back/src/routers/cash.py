@@ -8,6 +8,7 @@ from ..db import db
 from ..models import CashDeposit, CashWithdrawal
 from ..constants import CURRENCIES
 from ..google_sheets import sheets_manager
+from ..history_manager import history_manager
 
 router = APIRouter(prefix="/cash", tags=["cash"])
 
@@ -111,6 +112,12 @@ def deposit_to_cash(deposit: CashDeposit):
     new_balance = old_balance + deposit.amount
     
     # Обновляем баланс в кассе
+    # Сохраняем снимок состояния ПЕРЕД пополнением
+    history_manager.save_snapshot(
+        operation_type="deposit",
+        description=f"Deposit {deposit.amount} {deposit.asset}"
+    )
+    
     db.cash.update_one(
         {"asset": deposit.asset},
         {"$set": {"balance": new_balance, "updated_at": datetime.utcnow()}}
@@ -186,6 +193,12 @@ def withdraw_from_cash(withdrawal: CashWithdrawal):
         )
     
     new_balance = old_balance - withdrawal.amount
+    
+    # Сохраняем снимок состояния ПЕРЕД выводом
+    history_manager.save_snapshot(
+        operation_type="withdrawal",
+        description=f"Withdrawal {withdrawal.amount} {withdrawal.asset}"
+    )
     
     # Обновляем баланс в кассе
     db.cash.update_one(

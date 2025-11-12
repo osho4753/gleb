@@ -1,9 +1,10 @@
 """
 Роутер для системных операций
 """
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from ..db import db
 from ..google_sheets import sheets_manager
+from ..history_manager import history_manager
 
 router = APIRouter(tags=["system"])
 
@@ -80,6 +81,9 @@ def reset_all_data():
     lots_result = db.fiat_lots.delete_many({})
     pnl_result = db.pnl_matches.delete_many({})
     
+    # Очищаем историю снимков
+    history_result = history_manager.clear_history()
+    
     # Очищаем Google Sheets
     try:
         sheets_manager.clear_all_transactions()
@@ -93,8 +97,76 @@ def reset_all_data():
         "cash_deleted": cash_result.deleted_count,
         "transactions_deleted": tx_result.deleted_count,
         "fiat_lots_deleted": lots_result.deleted_count,
-        "pnl_matches_deleted": pnl_result.deleted_count
+        "pnl_matches_deleted": pnl_result.deleted_count,
+        "history_snapshots_deleted": history_result
     }
+
+
+@router.post("/undo")
+def undo_last_operation():
+    """Отменяет последнюю операцию, восстанавливая предыдущее состояние"""
+    try:
+        # Получаем последний снимок
+        snapshot = history_manager.get_last_snapshot()
+        
+        if not snapshot:
+            raise HTTPException(status_code=404, detail="No operations to undo")
+        
+        # Восстанавливаем состояние
+        success = history_manager.restore_snapshot()
+        
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to restore snapshot")
+        
+        # Синхронизируем с Google Sheets
+        try:
+            # Очищаем и заново заполняем Sheets из восстановленных данных
+            sheets_manager.clear_all_transactions()
+            
+            # Добавляем все транзакции обратно
+            transactions = list(db.transactions.find())
+            for tx in transactions:
+                sheets_manager.add_transaction(tx)
+            
+            # Обновляем сводный лист
+            cash_items = list(db.cash.find({}, {"_id": 0}))
+            cash_status = {item["asset"]: item["balance"] for item in cash_items}
+            
+            pipeline = [
+                {"$group": {"_id": "$profit_currency", "total_realized_profit": {"$sum": "$realized_profit"}}}
+            ]
+            profit_results = list(db.transactions.aggregate(pipeline))
+            realized_profits = {r["_id"]: r["total_realized_profit"] for r in profit_results if r["_id"]}
+            
+            sheets_manager.update_summary_sheet(cash_status, realized_profits)
+            
+        except Exception as e:
+            print(f"Failed to sync with Google Sheets after undo: {e}")
+        
+        return {
+            "message": "Operation undone successfully",
+            "restored_operation": snapshot.get("operation_type"),
+            "restored_description": snapshot.get("description"),
+            "restored_timestamp": snapshot.get("timestamp")
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error during undo: {str(e)}")
+
+
+@router.get("/history")
+def get_operation_history(limit: int = 10):
+    """Получает историю последних операций"""
+    try:
+        history = history_manager.get_history(limit=limit)
+        return {
+            "history": history,
+            "count": len(history)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching history: {str(e)}")
 
 
 @router.post("/sheets/update-summary")

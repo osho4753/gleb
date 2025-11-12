@@ -326,12 +326,25 @@ export function TransactionsManager({
               value={formData.type}
               onChange={(e) => {
                 const newType = e.target.value
+                let fromAsset, toAsset
+
+                if (newType === 'crypto_to_fiat') {
+                  fromAsset = 'USDT'
+                  toAsset = 'USD'
+                } else if (newType === 'fiat_to_fiat') {
+                  fromAsset = 'CZK'
+                  toAsset = 'EUR'
+                } else {
+                  // fiat_to_crypto
+                  fromAsset = 'USD'
+                  toAsset = 'USDT'
+                }
+
                 setFormData({
                   ...formData,
                   type: newType,
-                  // При fiat_to_crypto: USD -> USDT, при crypto_to_fiat: USDT -> USD
-                  from_asset: newType === 'crypto_to_fiat' ? 'USDT' : 'USD',
-                  to_asset: newType === 'crypto_to_fiat' ? 'USD' : 'USDT',
+                  from_asset: fromAsset,
+                  to_asset: toAsset,
                 })
 
                 // Скролл к форме ввода

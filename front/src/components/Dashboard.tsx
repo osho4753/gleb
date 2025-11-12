@@ -127,6 +127,7 @@ export function Dashboard() {
       toast.error('Ошибка при сбросе данных')
     }
   }
+
   useEffect(() => {
     fetchData()
   }, [])
