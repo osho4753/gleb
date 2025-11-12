@@ -1,6 +1,8 @@
 import React, { useState } from 'react'
 import { toast } from 'sonner'
 import { config } from '../config'
+import { ChevronDownIcon } from 'lucide-react'
+import { evaluate } from 'mathjs'
 
 const API_BASE = config.apiBaseUrl
 
@@ -37,6 +39,8 @@ export function TransactionsManager({
   const [replenishmentAmount, setReplenishmentAmount] = useState('')
   const [replenishmentNote, setReplenishmentNote] = useState('')
   const [replenishing, setReplenishing] = useState(false)
+  const [calculatorInput, setCalculatorInput] = useState('')
+  const [calculatorResult, setCalculatorResult] = useState<string | null>(null)
 
   // Предустановки для быстрой навигации
   const presets = [
@@ -208,6 +212,21 @@ export function TransactionsManager({
       toast.error('Ошибка при пополнении кассы')
     } finally {
       setReplenishing(false)
+    }
+  }
+  const handleCalculatorInput = (value: string) => {
+    setCalculatorInput(value)
+    if (!value.trim()) {
+      setCalculatorResult(null)
+      return
+    }
+    try {
+      const result = evaluate(value)
+      setCalculatorResult(
+        typeof result === 'number' ? result.toString() : JSON.stringify(result)
+      )
+    } catch (error) {
+      setCalculatorResult(null)
     }
   }
 
@@ -477,6 +496,30 @@ export function TransactionsManager({
                     {percent}%
                   </button>
                 ))}
+              </div>
+            </div>
+          </div>
+          <div className="border-t p-3 sm:p-4 space-y-3 bg-gray-50">
+            <div>
+              <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-2">
+                Быстрый Калькулятор
+              </label>
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
+                <input
+                  type="text"
+                  value={calculatorInput}
+                  onChange={(e) => handleCalculatorInput(e.target.value)}
+                  placeholder="Например: 100 + 50 * 2 - (25 / 5)"
+                  className="flex-1 px-3 sm:px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs sm:text-sm"
+                />
+                {calculatorResult && (
+                  <div className="flex items-center gap-2 font-bold bg-white p-2 rounded-lg border border-blue-200 w-full sm:w-auto">
+                    <span className="text-gray-600 text-xs sm:text-sm">=</span>
+                    <span className="text-blue-600 text-sm sm:text-lg flex-1 sm:flex-none text-right sm:min-w-[80px] sm:text-right">
+                      {calculatorResult}
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
           </div>

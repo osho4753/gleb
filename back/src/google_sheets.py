@@ -118,18 +118,32 @@ class GoogleSheetsManager:
             }
             type_ru = type_map.get(tx_type, tx_type)
             
+            # Для fiat_to_fiat меняем местами "Принял" и "Выдал"
+            # Логика: клиент приносит from_asset, мы выдаём to_asset
+            if tx_type == "fiat_to_fiat":
+                received_asset = transaction_data.get("to_asset", "")
+                received_amount = float(transaction_data.get("amount_to_final", 0))
+                given_asset = transaction_data.get("from_asset", "")
+                given_amount = float(transaction_data.get("amount_from", 0)) if transaction_data.get("amount_from") else float(transaction_data.get("amount_to", 0))
+            else:
+                # Для остальных типов оставляем как есть
+                received_asset = transaction_data.get("from_asset", "")
+                received_amount = float(transaction_data.get("amount_from", 0))
+                given_asset = transaction_data.get("to_asset", "")
+                given_amount = float(transaction_data.get("amount_to_final", 0)) if transaction_data.get("amount_to_final") else float(transaction_data.get("amount_to", 0))
+            
             # Форматируем данные для добавления
             row = [
                 date_str,                                                    # Дата/Время
                 type_ru,                                                     # Тип операции
-                transaction_data.get("from_asset", ""),                     # Принял
-                float(transaction_data.get("amount_from", 0)),              # Количество
-                transaction_data.get("to_asset", ""),                       # Выдал
-                float(transaction_data.get("amount_to_final", 0)) if transaction_data.get("amount_to_final") else float(transaction_data.get("amount_to", 0)),  # Количество
+                received_asset,                                              # Принял
+                received_amount,                                             # Количество
+                given_asset,                                                 # Выдал
+                given_amount,                                                # Количество
                 float(transaction_data.get("rate_used", 0)) if transaction_data.get("rate_used") else "",  # Курс
                 float(transaction_data.get("fee_percent", 0)) if transaction_data.get("fee_percent") else "",  # Комиссия %
                 float(transaction_data.get("realized_profit", 0)) if transaction_data.get("realized_profit") else "",  # Прибыль
-                transaction_data.get("realized_profit_currency", ""),       # Валюта прибыли
+                transaction_data.get("profit_currency", ""),                # Валюта прибыли
                 transaction_data.get("note", ""),                           # Примечание
                 str(transaction_data.get("_id", ""))                        # ID (скрытая колонка)
             ]
@@ -178,18 +192,32 @@ class GoogleSheetsManager:
                 }
                 type_ru = type_map.get(tx_type, tx_type)
                 
+                # Для fiat_to_fiat меняем местами "Принял" и "Выдал"
+                # Логика: клиент приносит from_asset, мы выдаём to_asset
+                if tx_type == "fiat_to_fiat":
+                    received_asset = transaction_data.get("from_asset", "")
+                    received_amount = float(transaction_data.get("amount_from", 0))
+                    given_asset = transaction_data.get("to_asset", "")
+                    given_amount = float(transaction_data.get("amount_to_final", 0)) if transaction_data.get("amount_to_final") else float(transaction_data.get("amount_to", 0))
+                else:
+                    # Для остальных типов оставляем как есть
+                    received_asset = transaction_data.get("from_asset", "")
+                    received_amount = float(transaction_data.get("amount_from", 0))
+                    given_asset = transaction_data.get("to_asset", "")
+                    given_amount = float(transaction_data.get("amount_to_final", 0)) if transaction_data.get("amount_to_final") else float(transaction_data.get("amount_to", 0))
+                
                 # Обновляем данные
                 row = [
                     date_str,                                                    # Дата/Время
                     type_ru,                                                     # Тип операции
-                    transaction_data.get("from_asset", ""),                     # Принял
-                    float(transaction_data.get("amount_from", 0)),              # Количество
-                    transaction_data.get("to_asset", ""),                       # Выдал
-                    float(transaction_data.get("amount_to_final", 0)) if transaction_data.get("amount_to_final") else float(transaction_data.get("amount_to", 0)),  # Количество
+                    received_asset,                                              # Принял
+                    received_amount,                                             # Количество
+                    given_asset,                                                 # Выдал
+                    given_amount,                                                # Количество
                     float(transaction_data.get("rate_used", 0)) if transaction_data.get("rate_used") else "",  # Курс
                     float(transaction_data.get("fee_percent", 0)) if transaction_data.get("fee_percent") else "",  # Комиссия %
                     float(transaction_data.get("realized_profit", 0)) if transaction_data.get("realized_profit") else "",  # Прибыль
-                    transaction_data.get("realized_profit_currency", ""),       # Валюта прибыли
+                    transaction_data.get("profit_currency", ""),                # Валюта прибыли
                     transaction_data.get("note", ""),                           # Примечание
                     str(transaction_id)                                         # ID (скрытая колонка)
                 ]
@@ -222,6 +250,101 @@ class GoogleSheetsManager:
                 
         except Exception as e:
             print(f"❌ Failed to delete transaction from Google Sheets: {e}")
+    
+    def clear_all_transactions(self):
+        """
+        Удаляет все строки транзакций из Google Sheets (оставляет только заголовок)
+        """
+        if not self.enabled:
+            return
+        
+        try:
+            worksheet = self.spreadsheet.get_worksheet(0)
+            
+            # Получаем количество строк
+            row_count = worksheet.row_count
+            
+            # Если есть строки кроме заголовка, удаляем их
+            if row_count > 1:
+                worksheet.delete_rows(2, row_count)
+                print(f"✅ Cleared {row_count - 1} transaction rows from Google Sheets")
+            else:
+                print("✅ Google Sheets already empty (only headers)")
+                
+        except Exception as e:
+            print(f"❌ Failed to clear transactions from Google Sheets: {e}")
+    
+    def update_summary_sheet(self, cash_status: dict, realized_profits: dict):
+        """
+        Обновляет лист "Касса и Прибыль" с текущим состоянием
+        
+        Args:
+            cash_status: Словарь {валюта: баланс}
+            realized_profits: Словарь {валюта: прибыль}
+        """
+        if not self.enabled:
+            return
+        
+        try:
+            # Получаем или создаем лист "Касса и Прибыль"
+            try:
+                summary_sheet = self.spreadsheet.worksheet("Касса и Прибыль")
+            except:
+                summary_sheet = self.spreadsheet.add_worksheet(title="Касса и Прибыль", rows=50, cols=10)
+            
+            # Очищаем лист
+            summary_sheet.clear()
+            
+            # Текущая дата/время обновления
+            update_time = datetime.now().strftime("%d.%m.%Y %H:%M:%S")
+            
+            # Заголовок
+            summary_sheet.update('A1', [[f'Последнее обновление: {update_time}']])
+            
+            # --- Секция КАССА ---
+            summary_sheet.update('A3', [['СОСТОЯНИЕ КАССЫ']])
+            summary_sheet.update('A4:B4', [['Валюта', 'Баланс']])
+            
+            # Данные кассы
+            cash_rows = []
+            for currency, balance in sorted(cash_status.items()):
+                cash_rows.append([currency, float(balance)])
+            
+            if cash_rows:
+                summary_sheet.update(f'A5:B{4 + len(cash_rows)}', cash_rows)
+            
+            # --- Секция ПРИБЫЛЬ ---
+            profit_start_row = 5 + len(cash_rows) + 2
+            summary_sheet.update(f'A{profit_start_row}', [['РЕАЛИЗОВАННАЯ ПРИБЫЛЬ']])
+            summary_sheet.update(f'A{profit_start_row + 1}:B{profit_start_row + 1}', [['Валюта', 'Прибыль']])
+            
+            # Данные прибыли
+            profit_rows = []
+            for currency, profit in sorted(realized_profits.items()):
+                if currency:  # Исключаем пустые валюты
+                    profit_rows.append([currency, float(profit)])
+            
+            if profit_rows:
+                summary_sheet.update(f'A{profit_start_row + 2}:B{profit_start_row + 1 + len(profit_rows)}', profit_rows)
+            
+            # Форматирование
+            # Жирный шрифт для заголовков
+            summary_sheet.format('A1', {'textFormat': {'bold': True, 'fontSize': 12}})
+            summary_sheet.format('A3', {'textFormat': {'bold': True, 'fontSize': 11}})
+            summary_sheet.format(f'A{profit_start_row}', {'textFormat': {'bold': True, 'fontSize': 11}})
+            summary_sheet.format('A4:B4', {'textFormat': {'bold': True}, 'backgroundColor': {'red': 0.9, 'green': 0.9, 'blue': 0.9}})
+            summary_sheet.format(f'A{profit_start_row + 1}:B{profit_start_row + 1}', {'textFormat': {'bold': True}, 'backgroundColor': {'red': 0.9, 'green': 0.9, 'blue': 0.9}})
+            
+            # Попытка установить ширину колонок (опционально)
+            try:
+                summary_sheet.columns_auto_resize(0, 2)  # Автоматический размер для колонок A и B
+            except:
+                pass  # Игнорируем, если метод не поддерживается
+            
+            print(f"✅ Summary sheet updated successfully")
+            
+        except Exception as e:
+            print(f"❌ Failed to update summary sheet: {e}")
 
 
 # Глобальный экземпляр

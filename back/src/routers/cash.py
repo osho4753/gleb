@@ -7,6 +7,7 @@ from datetime import datetime
 from ..db import db
 from ..models import CashDeposit, CashWithdrawal
 from ..constants import CURRENCIES
+from ..google_sheets import sheets_manager
 
 router = APIRouter(prefix="/cash", tags=["cash"])
 
@@ -134,7 +135,27 @@ def deposit_to_cash(deposit: CashDeposit):
     
     # Сохраняем в коллекцию транзакций
     transaction_result = db.transactions.insert_one(deposit_transaction)
-    
+    # Add _id so Sheets helper can reference it
+    deposit_transaction["_id"] = transaction_result.inserted_id
+
+    # Try to write to Google Sheets (don't fail the request if Sheets is down)
+    try:
+        sheets_manager.add_transaction(deposit_transaction)
+        
+        # Обновляем сводный лист
+        cash_items = list(db.cash.find({}, {"_id": 0}))
+        cash_status = {item["asset"]: item["balance"] for item in cash_items}
+        
+        pipeline = [
+            {"$group": {"_id": "$profit_currency", "total_realized_profit": {"$sum": "$realized_profit"}}}
+        ]
+        profit_results = list(db.transactions.aggregate(pipeline))
+        realized_profits = {r["_id"]: r["total_realized_profit"] for r in profit_results if r["_id"]}
+        
+        sheets_manager.update_summary_sheet(cash_status, realized_profits)
+    except Exception as e:
+        print(f"Failed to add cash deposit to Google Sheets: {e}")
+
     return {
         "message": f"Deposited {deposit.amount} {deposit.asset} to cash",
         "asset": deposit.asset,
@@ -191,7 +212,27 @@ def withdraw_from_cash(withdrawal: CashWithdrawal):
     
     # Сохраняем в коллекцию транзакций
     transaction_result = db.transactions.insert_one(withdrawal_transaction)
-    
+    # Add _id so Sheets helper can reference it
+    withdrawal_transaction["_id"] = transaction_result.inserted_id
+
+    # Try to write to Google Sheets (don't fail the request if Sheets is down)
+    try:
+        sheets_manager.add_transaction(withdrawal_transaction)
+        
+        # Обновляем сводный лист
+        cash_items = list(db.cash.find({}, {"_id": 0}))
+        cash_status = {item["asset"]: item["balance"] for item in cash_items}
+        
+        pipeline = [
+            {"$group": {"_id": "$profit_currency", "total_realized_profit": {"$sum": "$realized_profit"}}}
+        ]
+        profit_results = list(db.transactions.aggregate(pipeline))
+        realized_profits = {r["_id"]: r["total_realized_profit"] for r in profit_results if r["_id"]}
+        
+        sheets_manager.update_summary_sheet(cash_status, realized_profits)
+    except Exception as e:
+        print(f"Failed to add cash withdrawal to Google Sheets: {e}")
+
     return {
         "message": f"Withdrawn {withdrawal.amount} {withdrawal.asset} from cash",
         "asset": withdrawal.asset,

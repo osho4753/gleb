@@ -366,6 +366,21 @@ def create_transaction(tx: Transaction):
     
     # Добавляем в Google Sheets
     sheets_manager.add_transaction(tx_data)
+    
+    # Обновляем сводный лист с кассой и прибылью
+    try:
+        cash_items = list(db.cash.find({}, {"_id": 0}))
+        cash_status = {item["asset"]: item["balance"] for item in cash_items}
+        
+        pipeline = [
+            {"$group": {"_id": "$profit_currency", "total_realized_profit": {"$sum": "$realized_profit"}}}
+        ]
+        profit_results = list(db.transactions.aggregate(pipeline))
+        realized_profits = {r["_id"]: r["total_realized_profit"] for r in profit_results if r["_id"]}
+        
+        sheets_manager.update_summary_sheet(cash_status, realized_profits)
+    except Exception as e:
+        print(f"Failed to update summary sheet: {e}")
 
     return {
         "type": tx.type,
@@ -742,6 +757,21 @@ def update_transaction(transaction_id: str, update_data: TransactionUpdate):
             # Обновляем в Google Sheets
             sheets_manager.update_transaction(transaction_id, updated_tx)
             
+            # Обновляем сводный лист
+            try:
+                cash_items = list(db.cash.find({}, {"_id": 0}))
+                cash_status = {item["asset"]: item["balance"] for item in cash_items}
+                
+                pipeline = [
+                    {"$group": {"_id": "$profit_currency", "total_realized_profit": {"$sum": "$realized_profit"}}}
+                ]
+                profit_results = list(db.transactions.aggregate(pipeline))
+                realized_profits = {r["_id"]: r["total_realized_profit"] for r in profit_results if r["_id"]}
+                
+                sheets_manager.update_summary_sheet(cash_status, realized_profits)
+            except Exception as e:
+                print(f"Failed to update summary sheet: {e}")
+            
             return {"message": "Transaction updated successfully", "transaction": updated_tx}
         else:
             return {"message": "No changes made to transaction"}
@@ -768,6 +798,21 @@ def delete_transaction(transaction_id: str):
         if result.deleted_count > 0:
             # Удаляем из Google Sheets
             sheets_manager.delete_transaction(transaction_id)
+            
+            # Обновляем сводный лист
+            try:
+                cash_items = list(db.cash.find({}, {"_id": 0}))
+                cash_status = {item["asset"]: item["balance"] for item in cash_items}
+                
+                pipeline = [
+                    {"$group": {"_id": "$profit_currency", "total_realized_profit": {"$sum": "$realized_profit"}}}
+                ]
+                profit_results = list(db.transactions.aggregate(pipeline))
+                realized_profits = {r["_id"]: r["total_realized_profit"] for r in profit_results if r["_id"]}
+                
+                sheets_manager.update_summary_sheet(cash_status, realized_profits)
+            except Exception as e:
+                print(f"Failed to update summary sheet: {e}")
             
             return {"message": "Transaction deleted successfully", "deleted_id": transaction_id}
         else:
