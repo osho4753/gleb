@@ -3,6 +3,7 @@ import { toast } from 'sonner'
 import { ChevronDownIcon, RefreshCwIcon } from 'lucide-react'
 import { config } from '../config'
 import { useAuth } from '../services/authService'
+import { useCashDesk } from '../services/cashDeskService'
 
 const API_BASE = config.apiBaseUrl
 
@@ -24,7 +25,8 @@ export function FiatLotsViewer({ onNavigateToHistory }: FiatLotsViewerProps) {
   const [lots, setLots] = useState<FiatLot[]>([])
   const [loading, setLoading] = useState(false)
   const [showOnlyActive, setShowOnlyActive] = useState(true)
-    const { authenticatedFetch } = useAuth()
+  const { authenticatedFetch } = useAuth()
+  const { selectedCashDesk } = useCashDesk()
   const [expandedCurrency, setExpandedCurrency] = useState<string | null>(null)
 
   const currencies = ['USD', 'EUR', 'CZK']
@@ -33,9 +35,11 @@ export function FiatLotsViewer({ onNavigateToHistory }: FiatLotsViewerProps) {
     setLoading(true)
     try {
       for (const currency of currencies) {
-        const res = await authenticatedFetch(
-          `${API_BASE}/transactions/fiat-lots/${currency}`
-        )
+        const url = new URL(`${API_BASE}/transactions/fiat-lots/${currency}`)
+        if (selectedCashDesk?._id) {
+          url.searchParams.set('cash_desk_id', selectedCashDesk._id)
+        }
+        const res = await authenticatedFetch(url.toString())
         if (res.ok) {
           const data = await res.json()
           setLots((prev) => {
@@ -55,7 +59,7 @@ export function FiatLotsViewer({ onNavigateToHistory }: FiatLotsViewerProps) {
 
   useEffect(() => {
     fetchLots()
-  }, [])
+  }, [selectedCashDesk])
 
   // Группируем лоты по валютам
   const lotsByCurrency = currencies.reduce((acc, currency) => {

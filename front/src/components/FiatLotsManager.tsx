@@ -3,6 +3,7 @@ import { toast } from 'sonner'
 import { RefreshCwIcon } from 'lucide-react'
 import { config } from '../config'
 import { useAuth } from '../services/authService'
+import { useCashDesk } from '../services/cashDeskService'
 
 const API_BASE = config.apiBaseUrl
 
@@ -39,22 +40,23 @@ export function FiatLotsManager() {
   const [lots, setLots] = useState<FiatLot[]>([])
   const [selectedCurrency, setSelectedCurrency] = useState<string>('CZK')
   const [profitSummary, setProfitSummary] = useState<ProfitSummary | null>(null)
-    const { authenticatedFetch } = useAuth()
-  const [loading, setLoading] = useState(false)
-
-  const currencies = ['CZK', 'USD', 'EUR']
+  const { authenticatedFetch } = useAuth()
+  const { selectedCashDesk } = useCashDesk()
+  const [loading, setLoading] = useState(false)  const currencies = ['CZK', 'USD', 'EUR']
 
   useEffect(() => {
     fetchLotsByCurrency(selectedCurrency)
     fetchProfitSummary(selectedCurrency)
-  }, [selectedCurrency])
+  }, [selectedCurrency, selectedCashDesk])
 
   const fetchLotsByCurrency = async (currency: string) => {
     try {
       setLoading(true)
-      const response = await authenticatedFetch(
-        `${API_BASE}/transactions/fiat-lots/${currency}`
-      )
+      const url = new URL(`${API_BASE}/transactions/profit-summary/${currency}`)
+      if (selectedCashDesk?.id) {
+        url.searchParams.set('cash_desk_id', selectedCashDesk.id)
+      }
+      const response = await authenticatedFetch(url.toString())
       if (!response.ok) throw new Error('Failed to fetch fiat lots')
 
       const data = await response.json()

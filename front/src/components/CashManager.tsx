@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback, useMemo } from 'react'
 import { toast } from 'sonner'
 import { config } from '../config'
 import { useAuth } from '../services/authService'
+import { useCashDesk } from '../services/cashDeskService'
 
 const API_BASE = config.apiBaseUrl
 
@@ -72,7 +73,8 @@ export function CashManager() {
   const [operationType, setOperationType] = useState<'deposit' | 'withdrawal'>(
     'deposit'
   )
-    const { authenticatedFetch } = useAuth()
+  const { authenticatedFetch } = useAuth()
+  const { selectedCashDeskId, selectedCashDesk } = useCashDesk()
   const [cashStatus, setCashStatus] = useState<CashStatus>({ cash: {} })
   const [loading, setLoading] = useState(false)
 
@@ -106,12 +108,15 @@ export function CashManager() {
     async (asset: string, amount: number) => {
       setLoading(true)
       try {
-        const res = await authenticatedFetch(`${API_BASE}/cash/${asset}?amount=${amount}`, {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        })
+        const res = await authenticatedFetch(
+          `${API_BASE}/cash/${asset}?amount=${amount}&cash_desk_id=${selectedCashDeskId}`,
+          {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          }
+        )
 
         if (res.ok) {
           toast.success(`Баланс ${asset} обновлен`)
@@ -126,7 +131,7 @@ export function CashManager() {
         setLoading(false)
       }
     },
-    [fetchCashStatus]
+    [fetchCashStatus, selectedCashDeskId]
   )
 
   // Handler for "Set Cash Balance" form submission (POST /cash/set)
@@ -138,16 +143,19 @@ export function CashManager() {
     }
     setLoading(true)
     try {
-      const res = await authenticatedFetch(`${API_BASE}/cash/set`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          asset: currency,
-          amount: parseFloat(amount),
-        }),
-      })
+      const res = await authenticatedFetch(
+        `${API_BASE}/cash/set?cash_desk_id=${selectedCashDeskId}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            asset: currency,
+            amount: parseFloat(amount),
+          }),
+        }
+      )
       if (res.ok) {
         toast.success('Баланс кассы успешно обновлен')
         setAmount('')
@@ -172,17 +180,20 @@ export function CashManager() {
     }
     setLoading(true)
     try {
-      const res = await authenticatedFetch(`${API_BASE}/cash/deposit`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          asset: currency,
-          amount: parseFloat(amount),
-          note: depositNote,
-        }),
-      })
+      const res = await authenticatedFetch(
+        `${API_BASE}/cash/deposit?cash_desk_id=${selectedCashDeskId}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            asset: currency,
+            amount: parseFloat(amount),
+            note: depositNote,
+          }),
+        }
+      )
       if (res.ok) {
         const result = await res.json()
         toast.success(`Касса пополнена: ${result.amount} ${result.asset}`)
@@ -209,17 +220,20 @@ export function CashManager() {
     }
     setLoading(true)
     try {
-      const res = await authenticatedFetch(`${API_BASE}/cash/withdrawal`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          asset: currency,
-          amount: parseFloat(amount),
-          note: depositNote,
-        }),
-      })
+      const res = await authenticatedFetch(
+        `${API_BASE}/cash/withdrawal?cash_desk_id=${selectedCashDeskId}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            asset: currency,
+            amount: parseFloat(amount),
+            note: depositNote,
+          }),
+        }
+      )
       if (res.ok) {
         const result = await res.json()
         toast.success(`Из кассы выведено: ${result.amount} ${result.asset}`)
@@ -280,9 +294,12 @@ export function CashManager() {
 
     setLoading(true)
     try {
-      const res = await authenticatedFetch(`${API_BASE}/cash/${assetToDelete}`, {
-        method: 'DELETE',
-      })
+      const res = await authenticatedFetch(
+        `${API_BASE}/cash/${assetToDelete}?cash_desk_id=${selectedCashDeskId}`,
+        {
+          method: 'DELETE',
+        }
+      )
 
       if (res.ok) {
         toast.success(`${assetToDelete} удален из кассы`)
@@ -302,12 +319,41 @@ export function CashManager() {
     return cashStatus?.cash ? Object.entries(cashStatus.cash) : []
   }, [cashStatus])
 
+  // Проверяем, что касса выбрана
+  if (!selectedCashDeskId) {
+    return (
+      <div className="min-h-screen bg-gray-100 p-4 sm:p-6 lg:p-8 font-sans">
+        <div className="max-w-4xl mx-auto space-y-6 sm:space-y-8">
+          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6 text-center">
+            <h2 className="text-xl font-semibold text-yellow-800 mb-2">
+              ⚠️ Касса не выбрана
+            </h2>
+            <p className="text-yellow-700">
+              Для управления кассой необходимо сначала выбрать кассу в селекторе
+              вверху страницы.
+            </p>
+            <p className="text-yellow-600 text-sm mt-2">
+              Если у вас нет касс, создайте их на вкладке "Кассы".
+            </p>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen bg-gray-100 p-4 sm:p-6 lg:p-8 font-sans">
       <div className="max-w-4xl mx-auto space-y-6 sm:space-y-8">
-        <h1 className="text-2xl sm:text-3xl font-extrabold text-gray-900 border-b pb-2">
-          Управление Кассой
-        </h1>
+        <div className="flex items-center justify-between">
+          <h1 className="text-2xl sm:text-3xl font-extrabold text-gray-900 border-b pb-2">
+            Управление Кассой
+          </h1>
+          {selectedCashDesk && (
+            <div className="text-sm text-gray-600 bg-blue-50 px-3 py-1 rounded-lg">
+              📦 {selectedCashDesk.name}
+            </div>
+          )}
+        </div>
 
         {/* Section: Set Cash Balance / Deposit */}
         <div className="bg-white p-4 sm:p-6 rounded-xl shadow-lg border border-gray-200">

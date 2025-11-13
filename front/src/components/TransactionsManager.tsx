@@ -2,7 +2,8 @@ import React, { useState } from 'react'
 import { toast } from 'sonner'
 import { config } from '../config'
 import { useAuth } from '../services/authService'
-import { ChevronDownIcon } from 'lucide-react'
+import { useCashDesk } from '../services/cashDeskService'
+
 import { evaluate } from 'mathjs'
 
 const API_BASE = config.apiBaseUrl
@@ -16,6 +17,7 @@ export function TransactionsManager({
 }: TransactionsManagerProps) {
   const [loading, setLoading] = useState(false)
   const { authenticatedFetch } = useAuth()
+  const { selectedCashDeskId, selectedCashDesk } = useCashDesk()
   const [formData, setFormData] = useState({
     type: 'fiat_to_crypto',
     from_asset: 'USD',
@@ -43,6 +45,11 @@ export function TransactionsManager({
   const [replenishing, setReplenishing] = useState(false)
   const [calculatorInput, setCalculatorInput] = useState('')
   const [calculatorResult, setCalculatorResult] = useState<string | null>(null)
+
+  // Состояние для предварительного просмотра транзакции
+  const [preview, setPreview] = useState<any>(null)
+  const [previewLoading, setPreviewLoading] = useState(false)
+  const [previewExpanded, setPreviewExpanded] = useState(false)
 
   // Предустановки для быстрой навигации
   const presets = [
@@ -99,20 +106,27 @@ export function TransactionsManager({
       toast.error('Заполните все обязательные поля')
       return
     }
+    if (!selectedCashDeskId) {
+      toast.error('Выберите кассу для работы')
+      return
+    }
     setLoading(true)
     try {
-      const res = await authenticatedFetch(`${API_BASE}/transactions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          ...formData,
-          amount_from: parseFloat(formData.amount_from),
-          rate_used: parseFloat(formData.rate_used),
-          fee_percent: parseFloat(formData.fee_percent),
-        }),
-      })
+      const res = await authenticatedFetch(
+        `${API_BASE}/transactions?cash_desk_id=${selectedCashDeskId}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            ...formData,
+            amount_from: parseFloat(formData.amount_from),
+            rate_used: parseFloat(formData.rate_used),
+            fee_percent: parseFloat(formData.fee_percent),
+          }),
+        }
+      )
       if (res.ok) {
         const result = await res.json()
         const effRate = result.rate_for_gleb_pnl
@@ -135,7 +149,9 @@ export function TransactionsManager({
 
           // Получаем текущий баланс кассы
           try {
-            const cashRes = await authenticatedFetch(`${API_BASE}/cash/status`)
+            const cashRes = await authenticatedFetch(
+              `${API_BASE}/cash/status?cash_desk_id=${selectedCashDeskId}`
+            )
             if (cashRes.ok) {
               const cashData = await cashRes.json()
               const currentBalance = cashData.cash[asset] || 0
@@ -177,6 +193,54 @@ export function TransactionsManager({
     }
   }
 
+  // Функция для расчета предварительного просмотра транзакции
+  const calculatePreview = React.useCallback(async () => {
+    if (!formData.amount_from || !formData.rate_used || !selectedCashDeskId) {
+      setPreview(null)
+      return
+    }
+
+    setPreviewLoading(true)
+    try {
+      const res = await authenticatedFetch(
+        `${API_BASE}/transactions/calculate-preview?cash_desk_id=${selectedCashDeskId}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            ...formData,
+            amount_from: parseFloat(formData.amount_from),
+            rate_used: parseFloat(formData.rate_used),
+            fee_percent: parseFloat(formData.fee_percent),
+          }),
+        }
+      )
+
+      if (res.ok) {
+        const result = await res.json()
+        setPreview(result)
+      } else {
+        setPreview(null)
+      }
+    } catch (error) {
+      console.error('Error calculating preview:', error)
+      setPreview(null)
+    } finally {
+      setPreviewLoading(false)
+    }
+  }, [formData, authenticatedFetch, selectedCashDeskId])
+
+  // Автоматический расчет предварительного просмотра при изменении данных
+  React.useEffect(() => {
+    const timer = setTimeout(() => {
+      calculatePreview()
+    }, 500) // Debounce 500ms
+
+    return () => clearTimeout(timer)
+  }, [calculatePreview])
+
   const handleReplenishCash = async () => {
     const amount = parseFloat(replenishmentAmount)
     if (!amount || amount <= 0) {
@@ -186,18 +250,21 @@ export function TransactionsManager({
 
     setReplenishing(true)
     try {
-      const res = await authenticatedFetch(`${API_BASE}/cash/deposit`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          asset: insufficientFundsModal.asset,
-          amount: amount,
-          note: replenishmentNote,
-          created_at: new Date().toISOString(),
-        }),
-      })
+      const res = await authenticatedFetch(
+        `${API_BASE}/cash/deposit?cash_desk_id=${selectedCashDeskId}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            asset: insufficientFundsModal.asset,
+            amount: amount,
+            note: replenishmentNote,
+            created_at: new Date().toISOString(),
+          }),
+        }
+      )
 
       if (res.ok) {
         toast.success(
@@ -236,7 +303,22 @@ export function TransactionsManager({
     <div className="space-y-6 w-full max-w-full px-4 sm:px-6">
       {/* HEADER: Заголовок */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-        <h2 className="text-xl sm:text-2xl font-bold">Транзакции</h2>
+        <div>
+          <h2 className="text-xl sm:text-2xl font-bold">Транзакции</h2>
+          {selectedCashDesk && (
+            <p className="text-sm text-gray-600">
+              Касса:{' '}
+              <span className="font-medium text-blue-600">
+                {selectedCashDesk.name}
+              </span>
+            </p>
+          )}
+          {!selectedCashDeskId && (
+            <p className="text-sm text-red-600 font-medium">
+              ⚠️ Выберите кассу для работы
+            </p>
+          )}
+        </div>
       </div>
 
       {/* ФОРМА: Создание транзакции */}
@@ -553,6 +635,289 @@ export function TransactionsManager({
               className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
             />
           </div>
+
+          {/* ПРЕДВАРИТЕЛЬНЫЙ ПРОСМОТР */}
+          {(preview || previewLoading) && (
+            <div className="bg-blue-50 border border-blue-200 rounded-lg overflow-hidden">
+              <div
+                className="flex items-center justify-between p-4 cursor-pointer hover:bg-blue-100 transition-colors"
+                onClick={() => setPreviewExpanded(!previewExpanded)}
+              >
+                <div className="flex items-center gap-2">
+                  <span className="text-blue-600 font-semibold">
+                    📊 Предварительный просмотр
+                  </span>
+                  {previewLoading && (
+                    <span className="text-xs text-gray-500">
+                      Рассчитывается...
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  {preview && !previewLoading && (
+                    <span className="text-xs text-blue-600 font-medium">
+                      {previewExpanded ? 'Свернуть' : 'Развернуть'}
+                    </span>
+                  )}
+                  <svg
+                    className={`w-5 h-5 text-blue-600 transition-transform duration-200 ${
+                      previewExpanded ? 'rotate-180' : ''
+                    }`}
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M19 9l-7 7-7-7"
+                    />
+                  </svg>
+                </div>
+              </div>
+
+              {previewExpanded && preview && !previewLoading && (
+                <div className="px-4 pb-4 space-y-3">
+                  <div className="space-y-3">
+                    {/* Детали транзакции */}
+                    <div className="bg-white rounded p-3 space-y-2">
+                      <h4 className="font-medium text-sm text-gray-700">
+                        💰 Детали транзакции
+                      </h4>
+                      <div className="grid grid-cols-2 gap-2 text-xs">
+                        <div>
+                          Получаем:{' '}
+                          <span className="font-semibold text-green-600">
+                            +{preview.transaction_preview?.amount_from}{' '}
+                            {preview.transaction_preview?.from_asset}
+                          </span>
+                        </div>
+                        <div>
+                          Отдаем:{' '}
+                          <span className="font-semibold text-red-600">
+                            -{preview.transaction_preview?.amount_to_final}{' '}
+                            {preview.transaction_preview?.to_asset}
+                          </span>
+                        </div>
+                        <div>
+                          Курс:{' '}
+                          <span className="font-semibold">
+                            {preview.transaction_preview?.rate_used}
+                          </span>
+                        </div>
+                        <div>
+                          Комиссия:{' '}
+                          <span className="font-semibold text-orange-600">
+                            {preview.transaction_preview?.fee_amount} (
+                            {preview.transaction_preview?.fee_percent}%)
+                          </span>
+                        </div>
+                      </div>
+
+                      {preview.transaction_preview?.type === 'crypto_to_fiat' &&
+                        !preview.profit_analysis && (
+                          <div className="mt-3 pt-2 border-t bg-gray-50 rounded p-2">
+                            <div className="flex justify-between items-center">
+                              <span className="text-sm font-medium text-gray-700">
+                                Выручка от продажи:
+                              </span>
+                              <span className="font-bold text-lg text-blue-600">
+                                {preview.transaction_preview?.amount_to_final}{' '}
+                                {preview.transaction_preview?.to_asset}
+                              </span>
+                            </div>
+                            <div className="text-xs text-gray-500 mt-1">
+                              Эффективный курс:{' '}
+                              {(
+                                preview.transaction_preview?.amount_to_final /
+                                preview.transaction_preview?.amount_from
+                              ).toFixed(4)}{' '}
+                              {preview.transaction_preview?.to_asset}/
+                              {preview.transaction_preview?.from_asset}
+                            </div>
+                          </div>
+                        )}
+                    </div>
+
+                    {/* Влияние на кассу */}
+                    {preview.cash_impact && (
+                      <div className="bg-white rounded p-3 space-y-2">
+                        <h4 className="font-medium text-sm text-gray-700">
+                          💼 Изменения в кассе
+                        </h4>
+                        <div className="space-y-1 text-xs">
+                          {Object.entries(preview.cash_impact.changes).map(
+                            ([asset, change]: [string, any]) => (
+                              <div key={asset} className="flex justify-between">
+                                <span>{asset}:</span>
+                                <span
+                                  className={`font-semibold ${
+                                    change > 0
+                                      ? 'text-green-600'
+                                      : 'text-red-600'
+                                  }`}
+                                >
+                                  {change > 0 ? '+' : ''}
+                                  {change} →{' '}
+                                  {preview.cash_impact.new_balances[asset]}
+                                </span>
+                              </div>
+                            )
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Анализ прибыли */}
+                    {preview.profit_analysis ? (
+                      <div className="bg-gradient-to-r from-green-50 to-blue-50 border-2 border-green-200 rounded-lg p-4 space-y-3">
+                        <h4 className="font-semibold text-base text-gray-800 flex items-center gap-2">
+                          💰 Прибыль от сделки
+                          <span
+                            className={`px-2 py-1 rounded-full text-xs font-bold ${
+                              preview.profit_analysis.realized_profit >= 0
+                                ? 'bg-green-100 text-green-800'
+                                : 'bg-red-100 text-red-800'
+                            }`}
+                          >
+                            {preview.profit_analysis.realized_profit >= 0
+                              ? 'Прибыльная'
+                              : 'Убыточная'}
+                          </span>
+                        </h4>
+
+                        {/* Основная информация о прибыли */}
+                        <div className="bg-white rounded-lg p-3 border">
+                          {/* Итоговая прибыль */}
+                          <div className="mt-3 pt-3 border-t">
+                            <div className="flex justify-between items-center">
+                              <span className="text-lg font-semibold text-gray-800">
+                                Чистая прибыль:
+                              </span>
+                              <div className="text-right">
+                                <div
+                                  className={`text-xl font-bold ${
+                                    preview.profit_analysis.realized_profit >= 0
+                                      ? 'text-green-600'
+                                      : 'text-red-600'
+                                  }`}
+                                >
+                                  {preview.profit_analysis.realized_profit >= 0
+                                    ? '+'
+                                    : ''}
+                                  {preview.profit_analysis.realized_profit}{' '}
+                                  {preview.profit_analysis.profit_currency}
+                                </div>
+                                {preview.profit_analysis
+                                  .realized_profit_usdt && (
+                                  <div className="text-sm text-gray-600">
+                                    ≈{' '}
+                                    {preview.profit_analysis
+                                      .realized_profit_usdt >= 0
+                                      ? '+'
+                                      : ''}
+                                    {preview.profit_analysis.realized_profit_usdt.toFixed(
+                                      2
+                                    )}{' '}
+                                    USDT
+                                  </div>
+                                )}
+                                {preview.profit_analysis.total_fiat_used >
+                                  0 && (
+                                  <div
+                                    className={`text-sm font-semibold ${
+                                      preview.profit_analysis.realized_profit >=
+                                      0
+                                        ? 'text-green-500'
+                                        : 'text-red-500'
+                                    }`}
+                                  ></div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div
+                        className={`rounded-lg p-3 border ${
+                          preview.transaction_preview?.type === 'crypto_to_fiat'
+                            ? 'bg-yellow-50 border-yellow-200'
+                            : 'bg-blue-50 border-blue-200'
+                        }`}
+                      >
+                        {preview.transaction_preview?.type ===
+                        'crypto_to_fiat' ? (
+                          <div>
+                            <h4 className="font-medium text-sm text-yellow-700 mb-2 flex items-center gap-2">
+                              ⚠️ Нет данных для расчета прибыли
+                            </h4>
+                            <div className="space-y-2 text-xs">
+                              <p className="text-yellow-700">
+                                Для расчета прибыли от продажи{' '}
+                                <strong>
+                                  {preview.transaction_preview?.from_asset}
+                                </strong>{' '}
+                                нужны фиат-лоты с историей покупки этой
+                                криптовалюты.
+                              </p>
+                              <div className="bg-yellow-100 rounded p-2">
+                                <p className="text-yellow-800 font-medium mb-1">
+                                  💡 Что это значит:
+                                </p>
+                                <ul className="text-yellow-700 space-y-1">
+                                  <li>
+                                    • В системе нет записей о покупке{' '}
+                                    {preview.transaction_preview?.from_asset}
+                                  </li>
+                                  <li>
+                                    • Прибыль нельзя рассчитать без
+                                    себестоимости
+                                  </li>
+                                  <li>
+                                    • Выручка:{' '}
+                                    <strong>
+                                      {
+                                        preview.transaction_preview
+                                          ?.amount_to_final
+                                      }{' '}
+                                      {preview.transaction_preview?.to_asset}
+                                    </strong>
+                                  </li>
+                                </ul>
+                              </div>
+                              <p className="text-yellow-600 text-xs">
+                                <strong>Совет:</strong> Создайте фиат-лоты для{' '}
+                                {preview.transaction_preview?.from_asset} в
+                                разделе "Фиат Лоты" или используйте транзакции
+                                пополнения.
+                              </p>
+                            </div>
+                          </div>
+                        ) : (
+                          <div>
+                            <h4 className="font-medium text-sm text-blue-700 mb-2">
+                              ℹ️ Пополнение криптовалютой
+                            </h4>
+                            <p className="text-xs text-blue-600">
+                              Это пополнение кассы криптовалютой. Прибыль будет
+                              рассчитана при продаже{' '}
+                              <strong>
+                                {preview.transaction_preview?.to_asset}
+                              </strong>
+                              .
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           <button
             type="submit"
             disabled={loading}

@@ -9,7 +9,10 @@ import { PnLMatches } from './components/PnLMatches'
 import { LoginScreen } from './components/LoginScreen'
 import { GoogleSheetsModal } from './components/GoogleSheetsModal'
 import { GoogleSheetsIcon } from './components/GoogleSheetsIcon'
+import { CashDesksManager } from './components/CashDesksManager'
+import { CashDeskSelector } from './components/CashDeskSelector'
 import { useAuth, TenantInfo } from './services/authService'
+import { useCashDesk } from './services/cashDeskService'
 
 export function App() {
   const [activeTab, setActiveTab] = useState('dashboard')
@@ -42,7 +45,12 @@ export function App() {
       <div className="max-w-7xl mx-auto p-3 sm:p-6">
         <div className="flex justify-between items-center mb-4 sm:mb-6">
           <div>
-            <h1 className="text-2xl sm:text-3xl font-bold">Панель Обменника</h1>
+            <div className="flex items-center gap-4 mb-2">
+              <h1 className="text-2xl sm:text-3xl font-bold">
+                Панель Обменника
+              </h1>
+              <CashDeskSelector />
+            </div>
             {tenantInfo && (
               <p className="text-sm text-gray-600 mt-1">
                 <span className="font-medium text-blue-600">
@@ -90,6 +98,16 @@ export function App() {
               }`}
             >
               Обзор
+            </button>
+            <button
+              onClick={() => setActiveTab('cash-desks')}
+              className={`px-3 sm:px-4 py-2 font-medium whitespace-nowrap text-sm sm:text-base ${
+                activeTab === 'cash-desks'
+                  ? 'border-b-2 border-blue-500 text-blue-600'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              Кассы
             </button>
             <button
               onClick={() => setActiveTab('cash')}
@@ -148,6 +166,7 @@ export function App() {
         </div>
         <div className="bg-white rounded-lg shadow p-3 sm:p-6">
           {activeTab === 'dashboard' && <Dashboard />}
+          {activeTab === 'cash-desks' && <CashDesksManager />}
           {activeTab === 'cash' && <CashManager />}
           {activeTab === 'transactions' && (
             <TransactionsManager

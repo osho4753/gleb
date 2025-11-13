@@ -3,6 +3,7 @@ import { toast } from 'sonner'
 import { RefreshCwIcon, ChevronDownIcon } from 'lucide-react'
 import { config } from '../config'
 import { useAuth } from '../services/authService'
+import { useCashDesk } from '../services/cashDeskService'
 
 const API_BASE = config.apiBaseUrl
 
@@ -26,13 +27,18 @@ type PnLMatch = {
 export function PnLMatches() {
   const [matches, setMatches] = useState<PnLMatch[]>([])
   const [loading, setLoading] = useState(false)
-    const { authenticatedFetch } = useAuth()
+  const { authenticatedFetch } = useAuth()
+  const { selectedCashDesk } = useCashDesk()
   const [expandedCurrency, setExpandedCurrency] = useState<string | null>(null)
 
   const fetchMatches = async () => {
     setLoading(true)
     try {
-      const res = await authenticatedFetch(`${API_BASE}/transactions/pnl-matches`)
+      const url = new URL(`${API_BASE}/transactions/pnl-matches`)
+      if (selectedCashDesk?._id) {
+        url.searchParams.set('cash_desk_id', selectedCashDesk._id)
+      }
+      const res = await authenticatedFetch(url.toString())
       if (res.ok) {
         const data = await res.json()
         setMatches(data.matches || [])
@@ -48,7 +54,7 @@ export function PnLMatches() {
 
   useEffect(() => {
     fetchMatches()
-  }, [])
+  }, [selectedCashDesk])
 
   // Группируем матчи по валюте
   const matchesByCurrency = matches.reduce((acc, match) => {

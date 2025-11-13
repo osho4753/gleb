@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 # Импорт роутеров
-from .routers import cash, transactions, system, admin, google_sheets
+from .routers import cash, transactions, system, admin, google_sheets, cash_desks
 
 # Создание приложения FastAPI
 app = FastAPI(title="Local Exchange Dashboard")
@@ -25,3 +25,4 @@ app.include_router(cash.router)        # Операции с кассой (/cash
 app.include_router(transactions.router) # Операции с транзакциями (/transactions/*)
 app.include_router(admin.router)       # Административные операции (/admin/*)
 app.include_router(google_sheets.router) # Google Sheets интеграция (/google-sheets/*)
+app.include_router(cash_desks.router)   # Фаза 2: Управление кассами (/cash-desks/*)

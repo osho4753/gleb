@@ -3,6 +3,7 @@ import { toast } from 'sonner'
 import { RefreshCwIcon, TrashIcon } from 'lucide-react'
 import { config } from '../config'
 import { useAuth } from '../services/authService'
+import { useCashDesk } from '../services/cashDeskService'
 
 const API_BASE = config.apiBaseUrl
 
@@ -44,13 +45,27 @@ export function Dashboard() {
   >({})
   const [loading, setLoading] = useState(false)
   const { authenticatedFetch } = useAuth()
+  const { selectedCashDeskId, selectedCashDesk, isAggregateView } =
+    useCashDesk()
   const fetchData = async () => {
+    if (!selectedCashDeskId && !isAggregateView) {
+      // Если нет выбранной кассы и не агрегированный режим, очищаем данные
+      setCashStatus({})
+      setRealizedProfit({})
+      setProfitSummaries({})
+      return
+    }
+
     setLoading(true)
     try {
+      const cashDeskParam = isAggregateView
+        ? ''
+        : `?cash_desk_id=${selectedCashDeskId}`
+
       const [statusRes, cashflowRes, realizedRes] = await Promise.all([
-        authenticatedFetch(`${API_BASE}/cash/status`),
-        authenticatedFetch(`${API_BASE}/cash/cashflow_profit`),
-        authenticatedFetch(`${API_BASE}/cash/profit`),
+        authenticatedFetch(`${API_BASE}/cash/status${cashDeskParam}`),
+        authenticatedFetch(`${API_BASE}/cash/cashflow_profit${cashDeskParam}`),
+        authenticatedFetch(`${API_BASE}/cash/profit${cashDeskParam}`),
       ])
 
       if (statusRes.ok) {
@@ -75,7 +90,7 @@ export function Dashboard() {
       for (const currency of currencies) {
         try {
           const summaryRes = await authenticatedFetch(
-            `${API_BASE}/transactions/profit-summary/${currency}`
+            `${API_BASE}/transactions/profit-summary/${currency}${cashDeskParam}`
           )
           if (summaryRes.ok) {
             summariesData[currency] = await summaryRes.json()
@@ -132,11 +147,28 @@ export function Dashboard() {
 
   useEffect(() => {
     fetchData()
-  }, [])
+  }, [selectedCashDeskId, isAggregateView])
   return (
     <div className="space-y-6 w-full max-w-full px-4 sm:px-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <h2 className="text-xl sm:text-2xl font-bold">Обзор Системы</h2>
+        <div>
+          <h2 className="text-xl sm:text-2xl font-bold">Обзор Системы</h2>
+          {!selectedCashDeskId && !isAggregateView && (
+            <p className="text-yellow-600 text-sm mt-1">
+              ⚠️ Выберите кассу для просмотра данных
+            </p>
+          )}
+          {isAggregateView && (
+            <p className="text-blue-600 text-sm mt-1">
+              📊 Агрегированные данные по всем кассам
+            </p>
+          )}
+          {selectedCashDeskId && !isAggregateView && selectedCashDesk && (
+            <p className="text-green-600 text-sm mt-1">
+              🏪 Касса: {selectedCashDesk.name}
+            </p>
+          )}
+        </div>
         <div className="flex flex-wrap gap-2 w-full sm:w-auto">
           <button
             onClick={fetchData}

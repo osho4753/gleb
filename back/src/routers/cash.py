@@ -10,6 +10,7 @@ from ..constants import CURRENCIES
 from ..google_sheets import sheets_manager
 from ..history_manager import history_manager
 from ..auth import get_current_tenant
+from ..utils.cash_desk_utils import verify_cash_desk_access_util
 
 router = APIRouter(prefix="/cash", tags=["cash"])
 
@@ -21,14 +22,19 @@ class CashSetRequest(BaseModel):
 
 
 @router.post("/init")
-def init_cash(tenant_id: str = Depends(get_current_tenant)):
-    """Инициализирует кассу с нулевыми балансами для всех валют для конкретного tenant"""
+def init_cash(
+    cash_desk_id: str,
+    tenant_id: str = Depends(get_current_tenant)
+):
+    """Инициализирует кассу с нулевыми балансами для всех валют для конкретной кассы"""
+    # Проверяем доступ к кассе
+    cash_desk = verify_cash_desk_access_util(cash_desk_id, tenant_id)
     initialized = []
     for asset in CURRENCIES:
-        existing = db.cash.find_one({"asset": asset, "tenant_id": tenant_id})
+        existing = db.cash.find_one({"asset": asset, "cash_desk_id": cash_desk_id})
         if existing:
             db.cash.update_one(
-                {"asset": asset, "tenant_id": tenant_id},
+                {"asset": asset, "cash_desk_id": cash_desk_id},
                 {"$set": {"balance": 0.0, "updated_at": datetime.utcnow()}}
             )
         else:
@@ -36,6 +42,7 @@ def init_cash(tenant_id: str = Depends(get_current_tenant)):
                 "asset": asset,
                 "balance": 0.0,
                 "tenant_id": tenant_id,
+                "cash_desk_id": cash_desk_id,
                 "updated_at": datetime.utcnow()
             })
         initialized.append(asset)
@@ -48,14 +55,21 @@ def init_cash(tenant_id: str = Depends(get_current_tenant)):
 
 
 @router.post("/set")
-def set_cash(request: CashSetRequest, tenant_id: str = Depends(get_current_tenant)):
-    """Устанавливает или обновляет баланс конкретной валюты для конкретного tenant"""
+def set_cash(
+    request: CashSetRequest, 
+    cash_desk_id: str,
+    tenant_id: str = Depends(get_current_tenant)
+):
+    """Устанавливает или обновляет баланс конкретной валюты для конкретной кассы"""
+    # Проверяем доступ к кассе
+    cash_desk = verify_cash_desk_access_util(cash_desk_id, tenant_id)
+    
     asset = request.asset
     amount = request.amount
-    existing = db.cash.find_one({"asset": asset, "tenant_id": tenant_id})
+    existing = db.cash.find_one({"asset": asset, "cash_desk_id": cash_desk_id})
     if existing:
         db.cash.update_one(
-            {"asset": asset, "tenant_id": tenant_id},
+            {"asset": asset, "cash_desk_id": cash_desk_id},
             {"$set": {"balance": amount, "updated_at": datetime.utcnow()}}
         )
     else:
@@ -63,11 +77,12 @@ def set_cash(request: CashSetRequest, tenant_id: str = Depends(get_current_tenan
             "asset": asset,
             "balance": amount,
             "tenant_id": tenant_id,
+            "cash_desk_id": cash_desk_id,
             "updated_at": datetime.utcnow()
         })
     return {
-        "message": f"Balance for {asset} set to {amount} for tenant {tenant_id}",
-        "tenant_id": tenant_id
+        "message": f"Balance for {asset} set to {amount} for cash desk {cash_desk.name}",
+        "cash_desk_id": cash_desk_id
     }
 
 
@@ -106,17 +121,25 @@ def delete_cash_asset(asset: str, tenant_id: str = Depends(get_current_tenant)):
 
 
 @router.post("/deposit")
-def deposit_to_cash(deposit: CashDeposit, tenant_id: str = Depends(get_current_tenant)):
-    """Пополнение кассы с сохранением как транзакции для конкретного tenant"""
+def deposit_to_cash(
+    deposit: CashDeposit, 
+    cash_desk_id: str,
+    tenant_id: str = Depends(get_current_tenant)
+):
+    """Пополнение кассы с сохранением как транзакции для конкретной кассы"""
+    
+    # Проверяем доступ к кассе
+    cash_desk = verify_cash_desk_access_util(cash_desk_id, tenant_id)
     
     # Проверяем/создаем актив в кассе
-    existing = db.cash.find_one({"asset": deposit.asset, "tenant_id": tenant_id})
+    existing = db.cash.find_one({"asset": deposit.asset, "cash_desk_id": cash_desk_id})
     if not existing:
         # Создаем новый актив с нулевым балансом
         db.cash.insert_one({
             "asset": deposit.asset,
             "balance": 0.0,
             "tenant_id": tenant_id,
+            "cash_desk_id": cash_desk_id,
             "updated_at": datetime.utcnow()
         })
         old_balance = 0.0
@@ -134,7 +157,7 @@ def deposit_to_cash(deposit: CashDeposit, tenant_id: str = Depends(get_current_t
     )
     
     db.cash.update_one(
-        {"asset": deposit.asset, "tenant_id": tenant_id},
+        {"asset": deposit.asset, "cash_desk_id": cash_desk_id},
         {"$set": {"balance": new_balance, "updated_at": datetime.utcnow()}}
     )
     
@@ -153,6 +176,7 @@ def deposit_to_cash(deposit: CashDeposit, tenant_id: str = Depends(get_current_t
         "note": deposit.note or "",
         "created_at": deposit.created_at,
         "tenant_id": tenant_id,
+        "cash_desk_id": cash_desk_id,
         "is_modified": False
     }
     
@@ -163,20 +187,18 @@ def deposit_to_cash(deposit: CashDeposit, tenant_id: str = Depends(get_current_t
 
     # Try to write to Google Sheets (don't fail the request if Sheets is down)
     try:
-        sheets_manager.add_transaction(deposit_transaction, tenant_id)
+        # Получаем имя кассы
+        cash_desk_name = "Общая касса"
+        if deposit.cash_desk_id:
+            cash_desk = db.cash_desks.find_one({"id": deposit.cash_desk_id, "tenant_id": tenant_id})
+            if cash_desk:
+                cash_desk_name = cash_desk["name"]
         
-        # Обновляем сводный лист для конкретного tenant
-        cash_items = list(db.cash.find({"tenant_id": tenant_id}, {"_id": 0}))
-        cash_status = {item["asset"]: item["balance"] for item in cash_items}
+        # Добавляем транзакцию в плоский лист
+        sheets_manager.add_transaction(deposit_transaction, tenant_id, deposit.cash_desk_id)
         
-        pipeline = [
-            {"$match": {"tenant_id": tenant_id}},
-            {"$group": {"_id": "$profit_currency", "total_realized_profit": {"$sum": "$realized_profit"}}}
-        ]
-        profit_results = list(db.transactions.aggregate(pipeline))
-        realized_profits = {r["_id"]: r["total_realized_profit"] for r in profit_results if r["_id"]}
-        
-        sheets_manager.update_cash_and_profits(cash_status, realized_profits, tenant_id)
+        # Обновляем баланс для конкретной кассы и валюты
+        sheets_manager.update_balance_for_desk(cash_desk_name, deposit.asset, new_balance, tenant_id)
     except Exception as e:
         print(f"Failed to add cash deposit to Google Sheets: {e}")
 
@@ -250,20 +272,18 @@ def withdraw_from_cash(withdrawal: CashWithdrawal, tenant_id: str = Depends(get_
 
     # Try to write to Google Sheets (don't fail the request if Sheets is down)
     try:
-        sheets_manager.add_transaction(withdrawal_transaction, tenant_id)
+        # Получаем имя кассы
+        cash_desk_name = "Общая касса"
+        if withdrawal.cash_desk_id:
+            cash_desk = db.cash_desks.find_one({"id": withdrawal.cash_desk_id, "tenant_id": tenant_id})
+            if cash_desk:
+                cash_desk_name = cash_desk["name"]
         
-        # Обновляем сводный лист для конкретного tenant
-        cash_items = list(db.cash.find({"tenant_id": tenant_id}, {"_id": 0}))
-        cash_status = {item["asset"]: item["balance"] for item in cash_items}
+        # Добавляем транзакцию в плоский лист
+        sheets_manager.add_transaction(withdrawal_transaction, tenant_id, withdrawal.cash_desk_id)
         
-        pipeline = [
-            {"$match": {"tenant_id": tenant_id}},
-            {"$group": {"_id": "$profit_currency", "total_realized_profit": {"$sum": "$realized_profit"}}}
-        ]
-        profit_results = list(db.transactions.aggregate(pipeline))
-        realized_profits = {r["_id"]: r["total_realized_profit"] for r in profit_results if r["_id"]}
-        
-        sheets_manager.update_cash_and_profits(cash_status, realized_profits, tenant_id)
+        # Обновляем баланс для конкретной кассы и валюты
+        sheets_manager.update_balance_for_desk(cash_desk_name, withdrawal.asset, new_balance, tenant_id)
     except Exception as e:
         print(f"Failed to add cash withdrawal to Google Sheets: {e}")
 
@@ -280,13 +300,30 @@ def withdraw_from_cash(withdrawal: CashWithdrawal, tenant_id: str = Depends(get_
 
 
 @router.get("/status")
-def get_cash_status(tenant_id: str = Depends(get_current_tenant)):
-    """Показать все активы и их балансы для конкретного tenant"""
+def get_cash_status(
+    cash_desk_id: str = None,
+    tenant_id: str = Depends(get_current_tenant)
+):
+    """Показать все активы и их балансы для конкретной кассы или агрегированно"""
     try:
-        items = list(db.cash.find({"tenant_id": tenant_id}, {"_id": 0}))
+        if cash_desk_id:
+            # Проверяем доступ к кассе
+            cash_desk = verify_cash_desk_access_util(cash_desk_id, tenant_id)
+            # Получаем данные для конкретной кассы
+            items = list(db.cash.find({"cash_desk_id": cash_desk_id}, {"_id": 0}))
+        else:
+            # Агрегированные данные по всем кассам tenant'а
+            pipeline = [
+                {"$match": {"tenant_id": tenant_id}},
+                {"$group": {"_id": "$asset", "balance": {"$sum": "$balance"}}}
+            ]
+            aggregated = list(db.cash.aggregate(pipeline))
+            items = [{"asset": item["_id"], "balance": item["balance"]} for item in aggregated]
+        
         total_assets = {item["asset"]: item["balance"] for item in items}
         return {
             "cash": total_assets,
+            "cash_desk_id": cash_desk_id,
             "tenant_id": tenant_id
         }
     except Exception as e:
@@ -296,14 +333,25 @@ def get_cash_status(tenant_id: str = Depends(get_current_tenant)):
 
 
 @router.get("/profit")
-def get_total_profit(tenant_id: str = Depends(get_current_tenant)):
+def get_total_profit(
+    cash_desk_id: str = None,
+    tenant_id: str = Depends(get_current_tenant)
+):
     """
     Возвращает суммарную реализованную прибыль, сгруппированную по валюте прибыли.
     """
     from ..constants import FIAT_ASSETS
     
+    if cash_desk_id:
+        # Проверяем доступ к кассе
+        verify_cash_desk_access_util(cash_desk_id, tenant_id)
+        match_filter = {"cash_desk_id": cash_desk_id}
+    else:
+        # Агрегированные данные по всем кассам tenant'а
+        match_filter = {"tenant_id": tenant_id}
+    
     pipeline = [
-        {"$match": {"tenant_id": tenant_id}},
+        {"$match": match_filter},
         {"$group": {"_id": "$profit_currency", "total_realized_profit": {"$sum": "$realized_profit"}}}
     ]
     results = list(db.transactions.aggregate(pipeline))
@@ -322,12 +370,21 @@ def get_total_profit(tenant_id: str = Depends(get_current_tenant)):
 
 
 @router.get("/cashflow_profit")
-def get_cashflow_profit(tenant_id: str = Depends(get_current_tenant)):
+def get_cashflow_profit(
+    cash_desk_id: str = None,
+    tenant_id: str = Depends(get_current_tenant)
+):
     """
     Считает чистую прибыль/убыток по каждой валюте через поток кассы:
     - profit = все, что получили в этой валюте - все, что отдали из кассы в этой валюте
     """
-    txs = list(db.transactions.find({"tenant_id": tenant_id}))
+    if cash_desk_id:
+        # Проверяем доступ к кассе
+        verify_cash_desk_access_util(cash_desk_id, tenant_id)
+        txs = list(db.transactions.find({"cash_desk_id": cash_desk_id}))
+    else:
+        # Агрегированные данные по всем кассам tenant'а
+        txs = list(db.transactions.find({"tenant_id": tenant_id}))
     cashflow_profit = {}
 
     for tx in txs:

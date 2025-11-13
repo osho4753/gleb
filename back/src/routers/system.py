@@ -54,9 +54,16 @@ def get_tenant_info(tenant_id: str = Depends(get_current_tenant)):
 
 
 @router.delete("/reset-all")
-def reset_cash_delete():
+def reset_cash_delete(tenant_id: str = Depends(get_current_tenant)):
     """Полностью очищает кассу — все валюты и балансы (DELETE метод)"""
-    result = db.cash.delete_many({})
+    result = db.cash.delete_many({"tenant_id": tenant_id})
+    
+    # Очищаем Google Sheets
+    try:
+        sheets_manager.update_cash_and_profits({}, {}, tenant_id)
+    except Exception as e:
+        print(f"Failed to clear Google Sheets: {e}")
+    
     return {
         "message": "Cash register has been reset",
         "deleted_count": result.deleted_count
@@ -64,13 +71,13 @@ def reset_cash_delete():
 
 
 @router.delete("/reset-all-transactions")
-def reset_transactions():
+def reset_transactions(tenant_id: str = Depends(get_current_tenant)):
     """Полностью очищает коллекцию транзакций"""
-    result = db.transactions.delete_many({})
+    result = db.transactions.delete_many({"tenant_id": tenant_id})
     
     # Очищаем Google Sheets
     try:
-        sheets_manager.clear_all_transactions()
+        sheets_manager.update_cash_and_profits({}, {}, tenant_id)
     except Exception as e:
         print(f"Failed to clear Google Sheets: {e}")
     
@@ -81,9 +88,9 @@ def reset_transactions():
 
 
 @router.delete("/reset-fiat-lots")  
-def reset_fiat_lots():
+def reset_fiat_lots(tenant_id: str = Depends(get_current_tenant)):
     """Полностью очищает коллекцию фиатных лотов"""
-    result = db.fiat_lots.delete_many({})
+    result = db.fiat_lots.delete_many({"tenant_id": tenant_id})
     return {
         "message": "All fiat lots have been deleted",
         "deleted_count": result.deleted_count
@@ -91,9 +98,9 @@ def reset_fiat_lots():
 
 
 @router.delete("/reset-pnl-matches")
-def reset_pnl_matches():
+def reset_pnl_matches(tenant_id: str = Depends(get_current_tenant)):
     """Полностью очищает коллекцию PnL матчей"""
-    result = db.pnl_matches.delete_many({})
+    result = db.pnl_matches.delete_many({"tenant_id": tenant_id})
     return {
         "message": "All PnL matches have been deleted", 
         "deleted_count": result.deleted_count
@@ -107,6 +114,9 @@ def reset_all_data(tenant_id: str = Depends(get_current_tenant)):
     tx_result = db.transactions.delete_many({"tenant_id": tenant_id})
     lots_result = db.fiat_lots.delete_many({"tenant_id": tenant_id})
     pnl_result = db.pnl_matches.delete_many({"tenant_id": tenant_id})
+    
+    # Очищаем кассы (Фаза 2) для данного tenant
+    cash_desks_result = db.cash_desks.delete_many({"tenant_id": tenant_id})
     
     # Очищаем историю снимков для данного tenant
     history_result = history_manager.clear_history(tenant_id)
@@ -124,6 +134,7 @@ def reset_all_data(tenant_id: str = Depends(get_current_tenant)):
         "transactions_deleted": tx_result.deleted_count,
         "fiat_lots_deleted": lots_result.deleted_count,
         "pnl_matches_deleted": pnl_result.deleted_count,
+        "cash_desks_deleted": cash_desks_result.deleted_count,
         "history_snapshots_deleted": history_result
     }
 

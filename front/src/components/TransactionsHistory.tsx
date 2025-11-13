@@ -10,6 +10,7 @@ import {
 } from 'lucide-react'
 import { config } from '../config'
 import { useAuth } from '../services/authService'
+import { useCashDesk } from '../services/cashDeskService'
 import { evaluate } from 'mathjs'
 
 const API_BASE = config.apiBaseUrl
@@ -302,6 +303,8 @@ export function TransactionsHistory() {
   const [sortBy, setSortBy] = useState('created_at')
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
   const { authenticatedFetch } = useAuth()
+  const { selectedCashDeskId, selectedCashDesk, isAggregateView } =
+    useCashDesk()
   const [dateFilter, setDateFilter] = useState({ from: '', to: '' })
   const [currencyFilter, setCurrencyFilter] = useState('')
 
@@ -310,7 +313,14 @@ export function TransactionsHistory() {
   const fetchTransactions = async () => {
     setLoading(true)
     try {
-      const res = await authenticatedFetch(`${API_BASE}/transactions`)
+      const cashDeskParam = isAggregateView
+        ? ''
+        : selectedCashDeskId
+        ? `?cash_desk_id=${selectedCashDeskId}`
+        : ''
+      const res = await authenticatedFetch(
+        `${API_BASE}/transactions${cashDeskParam}`
+      )
       if (res.ok) {
         const data = await res.json()
         setTransactions(data)
@@ -753,7 +763,7 @@ export function TransactionsHistory() {
 
   useEffect(() => {
     fetchTransactions()
-  }, [])
+  }, [selectedCashDeskId, isAggregateView])
 
   // Закрытие меню экспорта при клике вне его
   useEffect(() => {
@@ -779,7 +789,24 @@ export function TransactionsHistory() {
     <div className="space-y-6 w-full max-w-full px-4 sm:px-6">
       {/* Заголовок */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-        <h2 className="text-xl sm:text-2xl font-bold">История Транзакций</h2>
+        <div>
+          <h2 className="text-xl sm:text-2xl font-bold">История Транзакций</h2>
+          {!selectedCashDeskId && !isAggregateView && (
+            <p className="text-yellow-600 text-sm mt-1">
+              ⚠️ Выберите кассу для просмотра транзакций
+            </p>
+          )}
+          {isAggregateView && (
+            <p className="text-blue-600 text-sm mt-1">
+              📊 Все транзакции по всем кассам
+            </p>
+          )}
+          {selectedCashDeskId && !isAggregateView && selectedCashDesk && (
+            <p className="text-green-600 text-sm mt-1">
+              🏪 Касса: {selectedCashDesk.name}
+            </p>
+          )}
+        </div>
         <div className="flex gap-2 w-full sm:w-auto flex-wrap">
           <button
             onClick={fetchTransactions}

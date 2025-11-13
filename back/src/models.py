@@ -18,8 +18,28 @@ class CreateTenant(BaseModel):
 class TenantAuth(BaseModel):
     master_key: str = Field(..., description="Master password for authentication")
 
+# Cash Desk Management Models (Фаза 2)
+class CashDesk(BaseModel):
+    id: str = Field(..., alias="_id", description="Unique cash desk identifier")
+    tenant_id: str = Field(..., description="Owner tenant identifier")
+    name: str = Field(..., description="Cash desk name (e.g., 'Прага', 'Украина')")
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    is_active: bool = Field(default=True, description="Whether cash desk is active")
+    
+    class Config:
+        validate_by_name = True
+        populate_by_name = True
+
+class CreateCashDesk(BaseModel):
+    name: str = Field(..., description="Cash desk name")
+
+class UpdateCashDesk(BaseModel):
+    name: Optional[str] = None
+    is_active: Optional[bool] = None
+
 class Transaction(BaseModel):
-    tenant_id: Optional[str] = None  # Tenant isolation field
+    tenant_id: Optional[str] = None  # Tenant isolation field (deprecated, use cash_desk_id)
+    cash_desk_id: Optional[str] = None  # Фаза 2: Cash desk isolation field
     type: str                     # "crypto_to_fiat", "fiat_to_crypto", "fiat_to_fiat"
     from_asset: str
     to_asset: str
@@ -50,14 +70,16 @@ class TransactionUpdate(BaseModel):
     created_at: Optional[datetime] = None
 
 class CashDeposit(BaseModel):
-    tenant_id: Optional[str] = None  # Tenant isolation field
+    tenant_id: Optional[str] = None  # Tenant isolation field (deprecated, use cash_desk_id)
+    cash_desk_id: Optional[str] = None  # Фаза 2: Cash desk isolation field
     asset: str
     amount: float = Field(gt=0, description="Amount must be positive")
     note: Optional[str] = ""
     created_at: Optional[datetime] = Field(default_factory=datetime.utcnow)
 
 class CashWithdrawal(BaseModel):
-    tenant_id: Optional[str] = None  # Tenant isolation field
+    tenant_id: Optional[str] = None  # Tenant isolation field (deprecated, use cash_desk_id)
+    cash_desk_id: Optional[str] = None  # Фаза 2: Cash desk isolation field
     asset: str
     amount: float = Field(gt=0, description="Amount must be positive")
     note: Optional[str] = ""

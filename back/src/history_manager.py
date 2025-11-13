@@ -275,11 +275,22 @@ class HistoryManager:
             return []
     
     @staticmethod
-    def clear_history():
-        """Очищает всю историю снимков (для reset-all-data)"""
+    def clear_history(tenant_id: str = None):
+        """Очищает историю снимков (для reset-all-data)
+        
+        Args:
+            tenant_id: ID tenant'а. Если не указан, очищает всю историю
+        """
         try:
-            result = db.history_snapshots.delete_many({})
-            print(f"🧹 Cleared {result.deleted_count} history snapshots")
+            if tenant_id:
+                # Очищаем историю только для конкретного tenant'а
+                result = db.history_snapshots.delete_many({"tenant_id": tenant_id})
+                print(f"🧹 Cleared {result.deleted_count} history snapshots for tenant {tenant_id}")
+            else:
+                # Очищаем всю историю (для полного сброса системы)
+                result = db.history_snapshots.delete_many({})
+                print(f"🧹 Cleared {result.deleted_count} history snapshots (all)")
+            
             return result.deleted_count
             
         except Exception as e:

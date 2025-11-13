@@ -7,6 +7,7 @@ from ..db import db
 from ..models import GoogleSheetsSettings, EnableGoogleSheets, GoogleSheetsStatus
 from ..auth import get_current_tenant
 from ..google_sheets import sheets_manager
+from ..utils.cash_desk_utils import get_tenant_cash_desks
 import re
 
 router = APIRouter(prefix="/google-sheets", tags=["google-sheets"])
@@ -291,3 +292,117 @@ def get_setup_instructions():
         "service_email": "mysheet@helical-realm-477920-u8.iam.gserviceaccount.com",
         "note": "После подключения таблицы, все ваши транзакции будут автоматически синхронизироваться с Google Таблицей"
     }
+
+@router.post("/sync-cash-desk/{cash_desk_id}")
+def sync_cash_desk_data(
+    cash_desk_id: str,
+    tenant_id: str = Depends(get_current_tenant)
+):
+    """Синхронизация данных конкретной кассы с Google Sheets (Фаза 2)"""
+    
+    # Проверяем настройки Google Sheets
+    settings = db.google_sheets_settings.find_one({"tenant_id": tenant_id})
+    if not settings or not settings.get("is_enabled"):
+        raise HTTPException(status_code=400, detail="Google Sheets не настроены или отключены")
+    
+    # Проверяем доступ к кассе
+    cash_desk = db.cash_desks.find_one({"_id": cash_desk_id, "tenant_id": tenant_id})
+    if not cash_desk:
+        raise HTTPException(status_code=404, detail="Касса не найдена")
+    
+    try:
+        # Получаем данные конкретной кассы
+        transactions = list(db.transactions.find({"cash_desk_id": cash_desk_id}))
+        for tx in transactions:
+            tx["_id"] = str(tx["_id"])
+        
+        cash_items = list(db.cash.find({"cash_desk_id": cash_desk_id}))
+        cash_status = {item["asset"]: item["balance"] for item in cash_items}
+        
+        # Рассчитываем прибыль по этой кассе
+        pipeline = [
+            {"$match": {"cash_desk_id": cash_desk_id}},
+            {"$group": {"_id": "$profit_currency", "total_realized_profit": {"$sum": "$realized_profit"}}}
+        ]
+        profit_results = list(db.transactions.aggregate(pipeline))
+        realized_profits = {r["_id"]: r["total_realized_profit"] for r in profit_results if r["_id"]}
+        
+        # Синхронизируем данные кассы
+        sheets_manager.sync_cash_desk_data(
+            settings["spreadsheet_id"],
+            cash_desk["name"],
+            transactions,
+            cash_status,
+            realized_profits,
+            tenant_id
+        )
+        
+        return {
+            "message": f"Данные кассы '{cash_desk['name']}' успешно синхронизированы",
+            "cash_desk_id": cash_desk_id,
+            "transactions_count": len(transactions),
+            "spreadsheet_id": settings["spreadsheet_id"]
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Ошибка синхронизации: {str(e)}")
+
+@router.post("/sync-aggregate-report") 
+def sync_aggregate_report(tenant_id: str = Depends(get_current_tenant)):
+    """Создание агрегированного отчета по всем кассам тенанта"""
+    
+    # Проверяем настройки Google Sheets
+    settings = db.google_sheets_settings.find_one({"tenant_id": tenant_id})
+    if not settings or not settings.get("is_enabled"):
+        raise HTTPException(status_code=400, detail="Google Sheets не настроены или отключены")
+    
+    try:
+        # Получаем все кассы тенанта
+        cash_desks = get_tenant_cash_desks(tenant_id)
+        
+        if not cash_desks:
+            raise HTTPException(status_code=404, detail="У вас нет касс")
+        
+        all_cash_desks_data = []
+        
+        for cash_desk in cash_desks:
+            # Данные по каждой кассе
+            transactions = list(db.transactions.find({"cash_desk_id": cash_desk._id}))
+            for tx in transactions:
+                tx["_id"] = str(tx["_id"])
+            
+            cash_items = list(db.cash.find({"cash_desk_id": cash_desk._id}))
+            cash_status = {item["asset"]: item["balance"] for item in cash_items}
+            
+            # Прибыль по кассе
+            pipeline = [
+                {"$match": {"cash_desk_id": cash_desk._id}},
+                {"$group": {"_id": "$profit_currency", "total_realized_profit": {"$sum": "$realized_profit"}}}
+            ]
+            profit_results = list(db.transactions.aggregate(pipeline))
+            realized_profits = {r["_id"]: r["total_realized_profit"] for r in profit_results if r["_id"]}
+            
+            all_cash_desks_data.append({
+                "cash_desk_name": cash_desk.name,
+                "cash_desk_id": cash_desk._id,
+                "transactions": transactions,
+                "cash_status": cash_status,
+                "realized_profits": realized_profits
+            })
+        
+        # Создаем агрегированный отчет
+        sheets_manager.sync_aggregate_report(
+            settings["spreadsheet_id"],
+            all_cash_desks_data,
+            tenant_id
+        )
+        
+        return {
+            "message": f"Агрегированный отчет по {len(cash_desks)} кассам создан",
+            "cash_desks_count": len(cash_desks),
+            "total_transactions": sum(len(desk["transactions"]) for desk in all_cash_desks_data),
+            "spreadsheet_id": settings["spreadsheet_id"]
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Ошибка создания отчета: {str(e)}")
