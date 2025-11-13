@@ -6,7 +6,7 @@ import secrets
 from fastapi import HTTPException, Depends, Header
 from typing import Optional
 from .db import db
-from .models import Tenant, CreateTenant
+from .models import Tenant, CreateTenant, CashDesk
 
 
 class AuthenticationService:
@@ -44,6 +44,7 @@ class AuthenticationService:
             return False
     
     @staticmethod
+    
     def create_tenant(tenant_data: CreateTenant) -> str:
         """
         Создает нового tenant
@@ -159,6 +160,19 @@ async def get_current_tenant(
         )
     
     return AuthenticationService.authenticate_tenant(x_auth_password)
+
+
+async def get_current_cash_desk(
+    cash_desk_id: str, 
+    tenant_id: str = Depends(get_current_tenant)
+) -> CashDesk:
+    """
+    Зависимость, которая проверяет доступ к кассе и возвращает ее объект.
+    Использовать для эндпоинтов, требующих ID кассы.
+    """
+    from .utils.cash_desk_utils import verify_cash_desk_access_util
+    from .models import CashDesk
+    return verify_cash_desk_access_util(cash_desk_id, tenant_id)
 
 
 # Глобальные экземпляры

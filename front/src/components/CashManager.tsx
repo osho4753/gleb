@@ -87,8 +87,12 @@ export function CashManager() {
   const currencies = ['USD', 'USDT', 'EUR', 'CZK']
 
   const fetchCashStatus = useCallback(async () => {
+    if (!selectedCashDeskId) return
+
     try {
-      const res = await authenticatedFetch(`${API_BASE}/cash/status`)
+      const res = await authenticatedFetch(
+        `${API_BASE}/cash/status?cash_desk_id=${selectedCashDeskId}`
+      )
       if (res.ok) {
         const data = await res.json()
         setCashStatus(data)
@@ -97,11 +101,16 @@ export function CashManager() {
       console.error('Failed to fetch cash status:', error)
       toast.error('Не удалось загрузить статус кассы')
     }
-  }, [])
+  }, [authenticatedFetch, selectedCashDeskId])
 
   useEffect(() => {
-    fetchCashStatus()
-  }, [fetchCashStatus])
+    if (selectedCashDeskId) {
+      fetchCashStatus()
+    } else {
+      // Очищаем данные если касса не выбрана
+      setCashStatus({ cash: {} })
+    }
+  }, [fetchCashStatus, selectedCashDeskId])
 
   // Function to handle balance update API call
   const updateBalance = useCallback(

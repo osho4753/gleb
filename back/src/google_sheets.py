@@ -1,6 +1,7 @@
 """
 Google Sheets Integration с поддержкой множественных таблиц
 """
+from bson import ObjectId
 import gspread
 from google.oauth2.service_account import Credentials
 from datetime import datetime
@@ -917,7 +918,7 @@ class GoogleSheetsManager:
             # Получаем имя кассы
             if cash_desk_id:
                 from .db import db
-                cash_desk = db.cash_desks.find_one({"id": cash_desk_id, "tenant_id": tenant_id})
+                cash_desk = db.cash_desks.find_one({"_id": ObjectId(cash_desk_id)})
                 cash_desk_name = cash_desk["name"] if cash_desk else "Неизвестная касса"
             else:
                 cash_desk_name = "Общая касса"

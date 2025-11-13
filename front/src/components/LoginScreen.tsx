@@ -10,7 +10,7 @@ interface LoginScreenProps {
 export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
-    const { authenticatedFetch } = useAuth()
+  const { authenticatedFetch } = useAuth()
   const [showDemo, setShowDemo] = useState(false)
 
   // Проверяем, есть ли сохраненный пароль при загрузке
@@ -27,11 +27,14 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
 
     try {
       // Тестируем пароль, делая запрос к API
-      const response = await authenticatedFetch(`${config.apiBaseUrl}/transactions`, {
-        headers: {
-          'X-Auth-Password': testPassword,
-        },
-      })
+      const response = await authenticatedFetch(
+        `${config.apiBaseUrl}/transactions`,
+        {
+          headers: {
+            'X-Auth-Password': testPassword,
+          },
+        }
+      )
 
       if (response.status === 200) {
         // Пароль верный, сохраняем и входим
@@ -157,42 +160,6 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
               )}
             </button>
           </form>
-
-          {/* Демо кнопки */}
-          <div className="mt-6 pt-6 border-t border-gray-200">
-            <div className="flex items-center justify-between mb-4">
-              <span className="text-sm text-gray-500">Демо доступ:</span>
-              <button
-                onClick={() => setShowDemo(!showDemo)}
-                className="text-sm text-indigo-600 hover:text-indigo-800"
-              >
-                {showDemo ? 'Скрыть' : 'Показать'}
-              </button>
-            </div>
-
-            {showDemo && (
-              <div className="space-y-2">
-                <button
-                  onClick={() =>
-                    handleDemoLogin('admin123', 'Дефолтная организация')
-                  }
-                  className="w-full text-left px-3 py-2 text-sm bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors"
-                  disabled={loading}
-                >
-                  🏢 admin123 - Дефолтная организация
-                </button>
-                <button
-                  onClick={() =>
-                    handleDemoLogin('test123', 'Тестовая организация')
-                  }
-                  className="w-full text-left px-3 py-2 text-sm bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors"
-                  disabled={loading}
-                >
-                  🧪 test123 - Тестовая организация
-                </button>
-              </div>
-            )}
-          </div>
         </div>
 
         {/* Информация */}

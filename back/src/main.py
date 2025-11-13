@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 # Импорт роутеров
 from .routers import cash, transactions, system, admin, google_sheets, cash_desks
+# Новые роутеры с репозиториями и явным разделением API
 
 # Создание приложения FastAPI
 app = FastAPI(title="Local Exchange Dashboard")
@@ -21,8 +22,9 @@ app.add_middleware(
 
 # Подключение роутеров
 app.include_router(system.router)      # Системные операции (/, /health, /reset-*)
-app.include_router(cash.router)        # Операции с кассой (/cash/*)
-app.include_router(transactions.router) # Операции с транзакциями (/transactions/*)
+app.include_router(cash.router)        # Операции с кассой (/cash/*) - УСТАРЕВШИЙ
+app.include_router(transactions.router) # Операции с транзакциями (/transactions/*) - УСТАРЕВШИЙ
 app.include_router(admin.router)       # Административные операции (/admin/*)
 app.include_router(google_sheets.router) # Google Sheets интеграция (/google-sheets/*)
 app.include_router(cash_desks.router)   # Фаза 2: Управление кассами (/cash-desks/*)
+

@@ -25,6 +25,7 @@ class CashDesk(BaseModel):
     name: str = Field(..., description="Cash desk name (e.g., 'Прага', 'Украина')")
     created_at: datetime = Field(default_factory=datetime.utcnow)
     is_active: bool = Field(default=True, description="Whether cash desk is active")
+    deleted_at: Optional[datetime] = Field(default=None, description="When cash desk was deleted")
     
     class Config:
         validate_by_name = True

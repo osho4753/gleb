@@ -54,8 +54,15 @@ def create_transaction(
         # Все остальные случаи → стандартно умножаем
         tx.amount_to_clean = tx.amount_from / tx.rate_used
     elif tx.type == "fiat_to_fiat":
-        # Обмен фиата на фиат: amount_to_final = amount_from / rate_used
-        tx.amount_to_clean = tx.amount_from / tx.rate_used
+        # Логика для fiat_to_fiat обмена:
+        # Если целевая валюта CZK - умножаем (например USD -> CZK: 100 * 24.5 = 2450)
+        # Если исходная валюта CZK - делим (например CZK -> USD: 2450 / 24.5 = 100)
+        if tx.to_asset == "CZK":
+            # Получаем CZK: умножаем amount_from на курс
+            tx.amount_to_clean = tx.amount_from * tx.rate_used
+        else:
+            # Отдаем CZK или другой обмен: делим amount_from на курс  
+            tx.amount_to_clean = tx.amount_from / tx.rate_used
         tx.amount_to_final = round(tx.amount_to_clean)
     else:
         tx.amount_to_clean = tx.amount_from * tx.rate_used
@@ -127,8 +134,8 @@ def create_transaction(
         if to_cash["balance"] < tx.amount_to_final:
             raise HTTPException(status_code=400, detail=f"Not enough {tx.to_asset} in cash")
         
-        db.cash.update_one({"asset": tx.to_asset, "tenant_id": tenant_id}, {"$inc": {"balance": -tx.amount_to_final}})
-        db.cash.update_one({"asset": tx.from_asset, "tenant_id": tenant_id}, {"$inc": {"balance": tx.amount_from}})
+        db.cash.update_one({"asset": tx.to_asset, "cash_desk_id": cash_desk_id}, {"$inc": {"balance": -tx.amount_to_final}})
+        db.cash.update_one({"asset": tx.from_asset, "cash_desk_id": cash_desk_id}, {"$inc": {"balance": tx.amount_from}})
         
         # Создаём лот фиата (этот кэш позже "сгорит" при покупках USDT за этот же фиат)
         fiat_currency = tx.from_asset           # 'CZK' | 'EUR' | 'USD'
@@ -184,13 +191,9 @@ def create_transaction(
         
         while need > eps:
             lot = db.fiat_lots.find_one(
-                    {
-                        "currency": from_asset_currency, 
-                        "remaining": {"$gt": 0},
-                        "cash_desk_id": cash_desk_id
-                    },
-                    sort=[("created_at", 1)]
-                )
+                {"currency": from_asset_currency, "remaining": {"$gt": 0},  "cash_desk_id": cash_desk_id}, 
+                sort=[("created_at", 1)]
+            )
             if not lot:
                 print(f"WARNING: No {from_asset_currency} lots available for FIFO calculation in fiat_to_fiat")
                 break
@@ -251,6 +254,7 @@ def create_transaction(
                     "currency": fiat_currency,
                     "remaining": {"$gt": 0},
                     "meta.source": "fiat_to_crypto",
+                    "tenant_id": tenant_id,
                     "cash_desk_id": cash_desk_id
                 },
                 sort=[("created_at", 1)]
@@ -305,6 +309,7 @@ def create_transaction(
                     "currency": fiat_currency,
                     "remaining": {"$gt": 0},
                     "meta.source": "fiat_to_fiat",
+                    "tenant_id": tenant_id,
                     "cash_desk_id": cash_desk_id
                 },
                 sort=[("created_at", 1)]
@@ -920,12 +925,12 @@ def update_transaction(transaction_id: str, update_data: TransactionUpdate, tena
 
 
 @router.delete("/{transaction_id}")
-def delete_transaction(transaction_id: str, tenant_id: str = Depends(get_current_tenant)):
+def delete_transaction(transaction_id: str, cash_desk_id: str, tenant_id: str = Depends(get_current_tenant)):
     """Удалить конкретную транзакцию"""
     try:
         print(f"Deleting transaction with ID: {transaction_id}")  # Добавляем логирование
         
-        existing_tx = db.transactions.find_one({"_id": ObjectId(transaction_id), "tenant_id": tenant_id})
+        existing_tx = db.transactions.find_one({"_id": ObjectId(transaction_id),"cash_desk_id": cash_desk_id})
         if not existing_tx:
             print(f"Transaction not found: {transaction_id}")  # Логируем если не найдена
             raise HTTPException(status_code=404, detail="Transaction not found")

@@ -42,7 +42,8 @@ export function FiatLotsManager() {
   const [profitSummary, setProfitSummary] = useState<ProfitSummary | null>(null)
   const { authenticatedFetch } = useAuth()
   const { selectedCashDesk } = useCashDesk()
-  const [loading, setLoading] = useState(false)  const currencies = ['CZK', 'USD', 'EUR']
+  const [loading, setLoading] = useState(false)
+  const currencies = ['CZK', 'USD', 'EUR']
 
   useEffect(() => {
     fetchLotsByCurrency(selectedCurrency)
@@ -53,8 +54,8 @@ export function FiatLotsManager() {
     try {
       setLoading(true)
       const url = new URL(`${API_BASE}/transactions/profit-summary/${currency}`)
-      if (selectedCashDesk?.id) {
-        url.searchParams.set('cash_desk_id', selectedCashDesk.id)
+      if (selectedCashDesk?._id) {
+        url.searchParams.set('cash_desk_id', selectedCashDesk._id)
       }
       const response = await authenticatedFetch(url.toString())
       if (!response.ok) throw new Error('Failed to fetch fiat lots')

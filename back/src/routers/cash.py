@@ -31,10 +31,10 @@ def init_cash(
     cash_desk = verify_cash_desk_access_util(cash_desk_id, tenant_id)
     initialized = []
     for asset in CURRENCIES:
-        existing = db.cash.find_one({"asset": asset, "cash_desk_id": cash_desk_id})
+        existing = db.cash.find_one({"asset": asset, "tenant_id": tenant_id, "cash_desk_id": cash_desk_id})
         if existing:
             db.cash.update_one(
-                {"asset": asset, "cash_desk_id": cash_desk_id},
+                {"asset": asset, "tenant_id": tenant_id, "cash_desk_id": cash_desk_id},
                 {"$set": {"balance": 0.0, "updated_at": datetime.utcnow()}}
             )
         else:
@@ -87,14 +87,14 @@ def set_cash(
 
 
 @router.put("/{asset}")
-def update_cash_balance(asset: str, amount: float, tenant_id: str = Depends(get_current_tenant)):
+def update_cash_balance(asset: str, amount: float,cash_desk_id: str, tenant_id: str = Depends(get_current_tenant)):
     """Обновляет баланс существующей валюты для конкретного tenant"""
-    existing = db.cash.find_one({"asset": asset, "tenant_id": tenant_id})
+    existing = db.cash.find_one({"asset": asset, "tenant_id": tenant_id, "cash_desk_id": cash_desk_id})
     if not existing:
-        raise HTTPException(status_code=404, detail=f"Asset {asset} not found in cash for tenant {tenant_id}")
-    
+        raise HTTPException(status_code=404, detail=f"Asset {asset} not found in cash for cash desk {cash_desk_id}")
+     
     db.cash.update_one(
-        {"asset": asset, "tenant_id": tenant_id},
+        {"asset": asset, "cash_desk_id": cash_desk_id},
         {"$set": {"balance": amount, "updated_at": datetime.utcnow()}}
     )
     return {
@@ -104,13 +104,13 @@ def update_cash_balance(asset: str, amount: float, tenant_id: str = Depends(get_
 
 
 @router.delete("/{asset}")
-def delete_cash_asset(asset: str, tenant_id: str = Depends(get_current_tenant)):
+def delete_cash_asset(asset: str,cash_desk_id: str, tenant_id: str = Depends(get_current_tenant)):
     """Удаляет валюту из кассы для конкретного tenant"""
-    existing = db.cash.find_one({"asset": asset, "tenant_id": tenant_id})
+    existing = db.cash.find_one({"asset": asset, "tenant_id": tenant_id, "cash_desk_id": cash_desk_id})
     if not existing:
         raise HTTPException(status_code=404, detail=f"Asset {asset} not found in cash for tenant {tenant_id}")
     
-    result = db.cash.delete_one({"asset": asset, "tenant_id": tenant_id})
+    result = db.cash.delete_one({"asset": asset, "tenant_id": tenant_id, "cash_desk_id": cash_desk_id})
     if result.deleted_count > 0:
         return {
             "message": f"Asset {asset} removed from cash for tenant {tenant_id}",
@@ -215,11 +215,11 @@ def deposit_to_cash(
 
 
 @router.post("/withdrawal")
-def withdraw_from_cash(withdrawal: CashWithdrawal, tenant_id: str = Depends(get_current_tenant)):
+def withdraw_from_cash(withdrawal: CashWithdrawal, cash_desk_id: str, tenant_id: str = Depends(get_current_tenant)):
     """Вычет средств из кассы с сохранением как транзакции для конкретного tenant"""
-    
+    cash_desk = verify_cash_desk_access_util(cash_desk_id, tenant_id)
     # Проверяем существование актива в кассе
-    existing = db.cash.find_one({"asset": withdrawal.asset, "tenant_id": tenant_id})
+    existing = db.cash.find_one({"asset": withdrawal.asset, "cash_desk_id": cash_desk_id})
     if not existing:
         raise HTTPException(status_code=404, detail=f"Asset {withdrawal.asset} not found in cash for tenant {tenant_id}")
     
@@ -229,8 +229,8 @@ def withdraw_from_cash(withdrawal: CashWithdrawal, tenant_id: str = Depends(get_
     if old_balance < withdrawal.amount:
         raise HTTPException(
             status_code=400, 
-            detail=f"Insufficient balance for tenant {tenant_id}. Available: {old_balance} {withdrawal.asset}, requested: {withdrawal.amount}"
-        )
+            detail=f"Insufficient balance for cash desk {cash_desk_id}. Available: {old_balance} {withdrawal.asset}"     
+            )
     
     new_balance = old_balance - withdrawal.amount
     
@@ -243,7 +243,7 @@ def withdraw_from_cash(withdrawal: CashWithdrawal, tenant_id: str = Depends(get_
     
     # Обновляем баланс в кассе
     db.cash.update_one(
-        {"asset": withdrawal.asset, "tenant_id": tenant_id},
+        {"asset": withdrawal.asset, "cash_desk_id": cash_desk_id},
         {"$set": {"balance": new_balance, "updated_at": datetime.utcnow()}}
     )
     
@@ -262,6 +262,7 @@ def withdraw_from_cash(withdrawal: CashWithdrawal, tenant_id: str = Depends(get_
         "note": withdrawal.note or "",
         "created_at": withdrawal.created_at,
         "tenant_id": tenant_id,
+        "cash_desk_id": cash_desk_id,
         "is_modified": False
     }
     
@@ -273,22 +274,15 @@ def withdraw_from_cash(withdrawal: CashWithdrawal, tenant_id: str = Depends(get_
     # Try to write to Google Sheets (don't fail the request if Sheets is down)
     try:
         # Получаем имя кассы
-        cash_desk_name = "Общая касса"
-        if withdrawal.cash_desk_id:
-            cash_desk = db.cash_desks.find_one({"id": withdrawal.cash_desk_id, "tenant_id": tenant_id})
-            if cash_desk:
-                cash_desk_name = cash_desk["name"]
+        cash_desk_name = cash_desk.name
+        sheets_manager.add_transaction(withdrawal_transaction, tenant_id, cash_desk_id)
         
-        # Добавляем транзакцию в плоский лист
-        sheets_manager.add_transaction(withdrawal_transaction, tenant_id, withdrawal.cash_desk_id)
-        
-        # Обновляем баланс для конкретной кассы и валюты
         sheets_manager.update_balance_for_desk(cash_desk_name, withdrawal.asset, new_balance, tenant_id)
     except Exception as e:
         print(f"Failed to add cash withdrawal to Google Sheets: {e}")
 
     return {
-        "message": f"Withdrawn {withdrawal.amount} {withdrawal.asset} from cash for tenant {tenant_id}",
+        "message": f"Withdrawn {withdrawal.amount} {withdrawal.asset} from cash desk {cash_desk_id}",
         "asset": withdrawal.asset,
         "amount": withdrawal.amount,
         "old_balance": old_balance,
@@ -310,7 +304,7 @@ def get_cash_status(
             # Проверяем доступ к кассе
             cash_desk = verify_cash_desk_access_util(cash_desk_id, tenant_id)
             # Получаем данные для конкретной кассы
-            items = list(db.cash.find({"cash_desk_id": cash_desk_id}, {"_id": 0}))
+            items = list(db.cash.find({"tenant_id": tenant_id, "cash_desk_id": cash_desk_id}, {"_id": 0}))
         else:
             # Агрегированные данные по всем кассам tenant'а
             pipeline = [

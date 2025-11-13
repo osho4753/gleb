@@ -25,6 +25,7 @@ interface CashDeskContextType {
   selectedCashDeskId: string | null
   loadCashDesks: () => Promise<void>
   selectCashDesk: (deskId: string) => void
+  selectNewlyCreatedCashDesk: (deskId: string) => void
   loading: boolean
   isAggregateView: boolean
   setAggregateView: (aggregate: boolean) => void
@@ -96,6 +97,15 @@ export function CashDeskProvider({ children }: CashDeskProviderProps) {
     }
   }
 
+  // Выбор новой созданной кассы
+  const selectNewlyCreatedCashDesk = async (deskId: string) => {
+    // Перезагружаем список касс чтобы включить новую
+    await loadCashDesks()
+    // Выбираем новую кассу
+    selectCashDesk(deskId)
+    toast.success('Новая касса выбрана и готова к использованию')
+  }
+
   // Получение текущей выбранной кассы
   const selectedCashDesk = selectedCashDeskId
     ? cashDesks.find((desk) => desk._id === selectedCashDeskId) || null
@@ -114,6 +124,7 @@ export function CashDeskProvider({ children }: CashDeskProviderProps) {
     selectedCashDeskId,
     loadCashDesks,
     selectCashDesk,
+    selectNewlyCreatedCashDesk,
     loading,
     isAggregateView,
     setAggregateView,

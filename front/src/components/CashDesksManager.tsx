@@ -1,7 +1,9 @@
-import React, { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { toast } from 'sonner'
 import { config } from '../config'
 import { useAuth } from '../services/authService'
+import { useCashDesk } from '../services/cashDeskService'
+import SafeCashDeskDeletion from './SafeCashDeskDeletion'
 
 const API_BASE = config.apiBaseUrl
 
@@ -11,21 +13,22 @@ interface CashDesk {
   name: string
   created_at: string
   is_active: boolean
-}
-
-interface CreateCashDeskData {
-  name: string
+  deleted_at?: string
 }
 
 export function CashDesksManager() {
   const [loading, setLoading] = useState(false)
   const [cashDesks, setCashDesks] = useState<CashDesk[]>([])
+  const [deletedCashDesks, setDeletedCashDesks] = useState<CashDesk[]>([])
   const [showCreateForm, setShowCreateForm] = useState(false)
+  const [showDeletedDesks, setShowDeletedDesks] = useState(false)
   const [newDeskName, setNewDeskName] = useState('')
   const [editingDesk, setEditingDesk] = useState<CashDesk | null>(null)
   const { authenticatedFetch } = useAuth()
+  const { loadCashDesks: updateCashDeskContext, selectNewlyCreatedCashDesk } =
+    useCashDesk()
 
-  // Загрузка списка касс
+  // Загрузка списка активных касс
   const loadCashDesks = async () => {
     setLoading(true)
     try {
@@ -40,6 +43,19 @@ export function CashDesksManager() {
       toast.error('Ошибка при загрузке касс')
     } finally {
       setLoading(false)
+    }
+  }
+
+  // Загрузка удаленных касс
+  const loadDeletedCashDesks = async () => {
+    try {
+      const res = await authenticatedFetch(`${API_BASE}/cash-desks/deleted`)
+      if (res.ok) {
+        const data = await res.json()
+        setDeletedCashDesks(data)
+      }
+    } catch (error) {
+      console.error('Ошибка при загрузке удаленных касс:', error)
     }
   }
 
@@ -63,10 +79,16 @@ export function CashDesksManager() {
       })
 
       if (res.ok) {
+        const newCashDesk = await res.json()
         toast.success('Касса успешно создана')
         setNewDeskName('')
         setShowCreateForm(false)
-        loadCashDesks()
+
+        // Перезагружаем локальные данные
+        reloadAllData()
+
+        // Автоматически выбираем новую кассу в Dashboard
+        selectNewlyCreatedCashDesk(newCashDesk._id)
       } else {
         const error = await res.json()
         toast.error(error.detail || 'Не удалось создать кассу')
@@ -93,7 +115,7 @@ export function CashDesksManager() {
       if (res.ok) {
         toast.success('Касса обновлена')
         setEditingDesk(null)
-        loadCashDesks()
+        reloadAllData()
       } else {
         const error = await res.json()
         toast.error(error.detail || 'Не удалось обновить кассу')
@@ -105,39 +127,16 @@ export function CashDesksManager() {
     }
   }
 
-  // Деактивация кассы
-  const deactivateCashDesk = async (desk: CashDesk) => {
-    if (
-      !confirm(`Вы уверены что хотите деактивировать кассу "${desk.name}"?`)
-    ) {
-      return
-    }
-
-    setLoading(true)
-    try {
-      const res = await authenticatedFetch(
-        `${API_BASE}/cash-desks/${desk._id}`,
-        {
-          method: 'DELETE',
-        }
-      )
-
-      if (res.ok) {
-        toast.success('Касса деактивирована')
-        loadCashDesks()
-      } else {
-        const error = await res.json()
-        toast.error(error.detail || 'Не удалось деактивировать кассу')
-      }
-    } catch (error) {
-      toast.error('Ошибка при деактивации кассы')
-    } finally {
-      setLoading(false)
-    }
+  // Перезагрузка всех данных
+  const reloadAllData = async () => {
+    await loadCashDesks()
+    await loadDeletedCashDesks()
+    // Обновляем контекст касс для Dashboard
+    await updateCashDeskContext()
   }
 
   useEffect(() => {
-    loadCashDesks()
+    reloadAllData()
   }, [])
 
   return (
@@ -275,13 +274,13 @@ export function CashDesksManager() {
                       >
                         Редактировать
                       </button>
-                      <button
-                        onClick={() => deactivateCashDesk(desk)}
-                        className="px-3 py-1 text-red-600 hover:bg-red-50 rounded font-medium"
-                        disabled={loading}
-                      >
-                        Деактивировать
-                      </button>
+                      <SafeCashDeskDeletion
+                        cashDesk={desk}
+                        onDeleted={reloadAllData}
+                        onRestored={reloadAllData}
+                        authenticatedFetch={authenticatedFetch}
+                        apiBase={API_BASE}
+                      />
                     </>
                   )}
                 </div>
@@ -290,6 +289,62 @@ export function CashDesksManager() {
           </div>
         )}
       </div>
+
+      {/* Удаленные кассы */}
+      {deletedCashDesks.length > 0 && (
+        <div className="bg-white rounded-lg border">
+          <div className="p-4 border-b flex items-center justify-between">
+            <h3 className="text-lg font-semibold text-gray-600">
+              Удаленные кассы
+            </h3>
+            <button
+              onClick={() => setShowDeletedDesks(!showDeletedDesks)}
+              className="text-sm text-gray-500 hover:text-gray-700"
+            >
+              {showDeletedDesks ? 'Скрыть' : 'Показать'} (
+              {deletedCashDesks.length})
+            </button>
+          </div>
+
+          {showDeletedDesks && (
+            <div className="divide-y">
+              {deletedCashDesks.map((desk) => (
+                <div
+                  key={desk._id}
+                  className="p-4 flex items-center justify-between bg-gray-50"
+                >
+                  <div className="opacity-60">
+                    <h4 className="font-semibold text-lg text-gray-600">
+                      {desk.name}
+                    </h4>
+                    <p className="text-sm text-gray-500">
+                      ID: {desk._id} • Создано:{' '}
+                      {new Date(desk.created_at).toLocaleDateString('ru-RU')}
+                      {desk.deleted_at && (
+                        <>
+                          {' '}
+                          • Удалено:{' '}
+                          {new Date(desk.deleted_at).toLocaleDateString(
+                            'ru-RU'
+                          )}
+                        </>
+                      )}
+                    </p>
+                  </div>
+
+                  <SafeCashDeskDeletion
+                    cashDesk={desk}
+                    onDeleted={reloadAllData}
+                    onRestored={reloadAllData}
+                    authenticatedFetch={authenticatedFetch}
+                    apiBase={API_BASE}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Информация о фазе 2 */}
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
