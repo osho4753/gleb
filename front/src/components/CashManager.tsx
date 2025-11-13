@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { toast } from 'sonner'
 import { config } from '../config'
+import { useAuth } from '../services/authService'
 
 const API_BASE = config.apiBaseUrl
 
@@ -71,6 +72,7 @@ export function CashManager() {
   const [operationType, setOperationType] = useState<'deposit' | 'withdrawal'>(
     'deposit'
   )
+    const { authenticatedFetch } = useAuth()
   const [cashStatus, setCashStatus] = useState<CashStatus>({ cash: {} })
   const [loading, setLoading] = useState(false)
 
@@ -84,7 +86,7 @@ export function CashManager() {
 
   const fetchCashStatus = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE}/cash/status`)
+      const res = await authenticatedFetch(`${API_BASE}/cash/status`)
       if (res.ok) {
         const data = await res.json()
         setCashStatus(data)
@@ -104,7 +106,7 @@ export function CashManager() {
     async (asset: string, amount: number) => {
       setLoading(true)
       try {
-        const res = await fetch(`${API_BASE}/cash/${asset}?amount=${amount}`, {
+        const res = await authenticatedFetch(`${API_BASE}/cash/${asset}?amount=${amount}`, {
           method: 'PUT',
           headers: {
             'Content-Type': 'application/json',
@@ -136,7 +138,7 @@ export function CashManager() {
     }
     setLoading(true)
     try {
-      const res = await fetch(`${API_BASE}/cash/set`, {
+      const res = await authenticatedFetch(`${API_BASE}/cash/set`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -170,7 +172,7 @@ export function CashManager() {
     }
     setLoading(true)
     try {
-      const res = await fetch(`${API_BASE}/cash/deposit`, {
+      const res = await authenticatedFetch(`${API_BASE}/cash/deposit`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -207,7 +209,7 @@ export function CashManager() {
     }
     setLoading(true)
     try {
-      const res = await fetch(`${API_BASE}/cash/withdrawal`, {
+      const res = await authenticatedFetch(`${API_BASE}/cash/withdrawal`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -278,7 +280,7 @@ export function CashManager() {
 
     setLoading(true)
     try {
-      const res = await fetch(`${API_BASE}/cash/${assetToDelete}`, {
+      const res = await authenticatedFetch(`${API_BASE}/cash/${assetToDelete}`, {
         method: 'DELETE',
       })
 

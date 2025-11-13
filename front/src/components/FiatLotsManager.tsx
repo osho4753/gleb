@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { toast } from 'sonner'
 import { RefreshCwIcon } from 'lucide-react'
 import { config } from '../config'
+import { useAuth } from '../services/authService'
 
 const API_BASE = config.apiBaseUrl
 
@@ -38,6 +39,7 @@ export function FiatLotsManager() {
   const [lots, setLots] = useState<FiatLot[]>([])
   const [selectedCurrency, setSelectedCurrency] = useState<string>('CZK')
   const [profitSummary, setProfitSummary] = useState<ProfitSummary | null>(null)
+    const { authenticatedFetch } = useAuth()
   const [loading, setLoading] = useState(false)
 
   const currencies = ['CZK', 'USD', 'EUR']
@@ -50,7 +52,7 @@ export function FiatLotsManager() {
   const fetchLotsByCurrency = async (currency: string) => {
     try {
       setLoading(true)
-      const response = await fetch(
+      const response = await authenticatedFetch(
         `${API_BASE}/transactions/fiat-lots/${currency}`
       )
       if (!response.ok) throw new Error('Failed to fetch fiat lots')
@@ -67,7 +69,7 @@ export function FiatLotsManager() {
 
   const fetchProfitSummary = async (currency: string) => {
     try {
-      const response = await fetch(
+      const response = await authenticatedFetch(
         `${API_BASE}/transactions/profit-summary/${currency}`
       )
       if (!response.ok) throw new Error('Failed to fetch profit summary')

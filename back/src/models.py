@@ -2,7 +2,24 @@ from pydantic import BaseModel, Field
 from datetime import datetime
 from typing import Optional
 
+# Tenant Management Models
+class Tenant(BaseModel):
+    tenant_id: str = Field(..., description="Unique tenant identifier")
+    master_key_hash: str = Field(..., description="Hashed master password")
+    name: str = Field(..., description="Organization/tenant name")
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    is_active: bool = Field(default=True, description="Whether tenant is active")
+
+class CreateTenant(BaseModel):
+    tenant_id: str = Field(..., description="Unique tenant identifier")
+    master_key: str = Field(..., description="Plain text master password")
+    name: str = Field(..., description="Organization/tenant name")
+
+class TenantAuth(BaseModel):
+    master_key: str = Field(..., description="Master password for authentication")
+
 class Transaction(BaseModel):
+    tenant_id: Optional[str] = None  # Tenant isolation field
     type: str                     # "crypto_to_fiat", "fiat_to_crypto", "fiat_to_fiat"
     from_asset: str
     to_asset: str
@@ -33,13 +50,34 @@ class TransactionUpdate(BaseModel):
     created_at: Optional[datetime] = None
 
 class CashDeposit(BaseModel):
+    tenant_id: Optional[str] = None  # Tenant isolation field
     asset: str
     amount: float = Field(gt=0, description="Amount must be positive")
     note: Optional[str] = ""
     created_at: Optional[datetime] = Field(default_factory=datetime.utcnow)
 
 class CashWithdrawal(BaseModel):
+    tenant_id: Optional[str] = None  # Tenant isolation field
     asset: str
     amount: float = Field(gt=0, description="Amount must be positive")
     note: Optional[str] = ""
     created_at: Optional[datetime] = Field(default_factory=datetime.utcnow)
+
+# Google Sheets Integration Models
+class GoogleSheetsSettings(BaseModel):
+    tenant_id: str = Field(..., description="Tenant identifier")
+    is_enabled: bool = Field(default=False, description="Whether Google Sheets integration is enabled")
+    spreadsheet_id: Optional[str] = Field(None, description="Google Sheets spreadsheet ID")
+    spreadsheet_url: Optional[str] = Field(None, description="Full URL to the spreadsheet")
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+class EnableGoogleSheets(BaseModel):
+    spreadsheet_url: str = Field(..., description="URL of the Google Spreadsheet to connect")
+
+class GoogleSheetsStatus(BaseModel):
+    is_enabled: bool
+    spreadsheet_id: Optional[str] = None
+    spreadsheet_url: Optional[str] = None
+    connection_status: str  # "connected", "error", "not_configured"
+    last_updated: Optional[datetime] = None

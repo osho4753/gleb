@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { toast } from 'sonner'
 import { config } from '../config'
+import { useAuth } from '../services/authService'
 import { ChevronDownIcon } from 'lucide-react'
 import { evaluate } from 'mathjs'
 
@@ -14,6 +15,7 @@ export function TransactionsManager({
   onNavigateToHistory,
 }: TransactionsManagerProps) {
   const [loading, setLoading] = useState(false)
+  const { authenticatedFetch } = useAuth()
   const [formData, setFormData] = useState({
     type: 'fiat_to_crypto',
     from_asset: 'USD',
@@ -99,7 +101,7 @@ export function TransactionsManager({
     }
     setLoading(true)
     try {
-      const res = await fetch(`${API_BASE}/transactions`, {
+      const res = await authenticatedFetch(`${API_BASE}/transactions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -116,7 +118,7 @@ export function TransactionsManager({
         const effRate = result.rate_for_gleb_pnl
           ? ` (Эфф. курс: ${result.rate_for_gleb_pnl.toFixed(4)})`
           : ''
-        toast.success(`Транзакция успешно создана${effRate}`)
+        toast.success(`✅ Транзакция успешно создана${effRate}.`)
         setFormData({
           ...formData,
           amount_from: '',
@@ -133,7 +135,7 @@ export function TransactionsManager({
 
           // Получаем текущий баланс кассы
           try {
-            const cashRes = await fetch(`${API_BASE}/cash/status`)
+            const cashRes = await authenticatedFetch(`${API_BASE}/cash/status`)
             if (cashRes.ok) {
               const cashData = await cashRes.json()
               const currentBalance = cashData.cash[asset] || 0
@@ -184,7 +186,7 @@ export function TransactionsManager({
 
     setReplenishing(true)
     try {
-      const res = await fetch(`${API_BASE}/cash/deposit`, {
+      const res = await authenticatedFetch(`${API_BASE}/cash/deposit`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -199,7 +201,7 @@ export function TransactionsManager({
 
       if (res.ok) {
         toast.success(
-          `Касса пополнена на ${amount} ${insufficientFundsModal.asset}`
+          `✅ Касса пополнена на ${amount} ${insufficientFundsModal.asset}. Данные синхронизированы с Google Таблицей.`
         )
         setInsufficientFundsModal({ ...insufficientFundsModal, isOpen: false })
         setReplenishmentAmount('')

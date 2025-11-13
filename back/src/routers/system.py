@@ -1,10 +1,11 @@
 """
 Роутер для системных операций
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from ..db import db
 from ..google_sheets import sheets_manager
 from ..history_manager import history_manager
+from ..auth import get_current_tenant
 
 router = APIRouter(tags=["system"])
 
@@ -24,6 +25,32 @@ def health_check():
         return {"status": "healthy", "database": "connected"}
     except Exception as e:
         return {"status": "unhealthy", "database": "disconnected", "error": str(e)}
+
+
+@router.get("/tenant-info")
+def get_tenant_info(tenant_id: str = Depends(get_current_tenant)):
+    """Получить информацию о текущем tenant"""
+    try:
+        # Получаем информацию о tenant из базы данных
+        # Ищем по _id, так как tenant'ы сохраняются с _id как основным ключом
+        tenant = db.tenants.find_one({"_id": tenant_id})
+        
+        if not tenant:
+            return {
+                "tenant_id": tenant_id,
+                "name": f"Организация {tenant_id}",
+                "is_active": True,
+                "created_at": None
+            }
+        
+        return {
+            "tenant_id": tenant.get("_id", tenant_id),  # _id является tenant_id
+            "name": tenant.get("name", f"Организация {tenant_id}"),
+            "is_active": tenant.get("is_active", True),
+            "created_at": tenant.get("created_at")
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get tenant info: {str(e)}")
 
 
 @router.delete("/reset-all")
@@ -74,21 +101,20 @@ def reset_pnl_matches():
 
 
 @router.delete("/reset-all-data")
-def reset_all_data():
-    """Полностью очищает все данные"""
-    cash_result = db.cash.delete_many({})
-    tx_result = db.transactions.delete_many({})
-    lots_result = db.fiat_lots.delete_many({})
-    pnl_result = db.pnl_matches.delete_many({})
+def reset_all_data(tenant_id: str = Depends(get_current_tenant)):
+    """Полностью очищает все данные для текущего tenant"""
+    cash_result = db.cash.delete_many({"tenant_id": tenant_id})
+    tx_result = db.transactions.delete_many({"tenant_id": tenant_id})
+    lots_result = db.fiat_lots.delete_many({"tenant_id": tenant_id})
+    pnl_result = db.pnl_matches.delete_many({"tenant_id": tenant_id})
     
-    # Очищаем историю снимков
-    history_result = history_manager.clear_history()
+    # Очищаем историю снимков для данного tenant
+    history_result = history_manager.clear_history(tenant_id)
     
     # Очищаем Google Sheets
     try:
-        sheets_manager.clear_all_transactions()
         # Обновляем сводный лист (пустой)
-        sheets_manager.update_summary_sheet({}, {})
+        sheets_manager.update_cash_and_profits({}, {}, tenant_id)
     except Exception as e:
         print(f"Failed to clear Google Sheets: {e}")
     
@@ -103,45 +129,21 @@ def reset_all_data():
 
 
 @router.post("/undo")
-def undo_last_operation():
-    """Отменяет последнюю операцию, восстанавливая предыдущее состояние"""
+def undo_last_operation(tenant_id: str = Depends(get_current_tenant)):
+    """Отменяет последнюю операцию для конкретного tenant, восстанавливая предыдущее состояние"""
     try:
-        # Получаем последний снимок
-        snapshot = history_manager.get_last_snapshot()
+        # Получаем последний снимок для конкретного tenant
+        snapshot = history_manager.get_last_snapshot(tenant_id)
         
         if not snapshot:
             raise HTTPException(status_code=404, detail="No operations to undo")
         
-        # Восстанавливаем состояние
-        success = history_manager.restore_snapshot()
+        # Восстанавливаем состояние для конкретного tenant
+        # (Google Sheets автоматически синхронизируется внутри restore_snapshot)
+        success = history_manager.restore_snapshot(tenant_id=tenant_id)
         
         if not success:
             raise HTTPException(status_code=500, detail="Failed to restore snapshot")
-        
-        # Синхронизируем с Google Sheets
-        try:
-            # Очищаем и заново заполняем Sheets из восстановленных данных
-            sheets_manager.clear_all_transactions()
-            
-            # Добавляем все транзакции обратно
-            transactions = list(db.transactions.find())
-            for tx in transactions:
-                sheets_manager.add_transaction(tx)
-            
-            # Обновляем сводный лист
-            cash_items = list(db.cash.find({}, {"_id": 0}))
-            cash_status = {item["asset"]: item["balance"] for item in cash_items}
-            
-            pipeline = [
-                {"$group": {"_id": "$profit_currency", "total_realized_profit": {"$sum": "$realized_profit"}}}
-            ]
-            profit_results = list(db.transactions.aggregate(pipeline))
-            realized_profits = {r["_id"]: r["total_realized_profit"] for r in profit_results if r["_id"]}
-            
-            sheets_manager.update_summary_sheet(cash_status, realized_profits)
-            
-        except Exception as e:
-            print(f"Failed to sync with Google Sheets after undo: {e}")
         
         return {
             "message": "Operation undone successfully",
@@ -157,10 +159,10 @@ def undo_last_operation():
 
 
 @router.get("/history")
-def get_operation_history(limit: int = 10):
-    """Получает историю последних операций"""
+def get_operation_history(limit: int = 10, tenant_id: str = Depends(get_current_tenant)):
+    """Получает историю последних операций для конкретного tenant"""
     try:
-        history = history_manager.get_history(limit=limit)
+        history = history_manager.get_history(limit=limit, tenant_id=tenant_id)
         return {
             "history": history,
             "count": len(history)
@@ -170,19 +172,20 @@ def get_operation_history(limit: int = 10):
 
 
 @router.post("/sheets/update-summary")
-def update_sheets_summary():
-    """Ручное обновление сводного листа Google Sheets"""
+def update_sheets_summary(tenant_id: str = Depends(get_current_tenant)):
+    """Ручное обновление сводного листа Google Sheets для текущего tenant"""
     try:
-        cash_items = list(db.cash.find({}, {"_id": 0}))
+        cash_items = list(db.cash.find({"tenant_id": tenant_id}, {"_id": 0}))
         cash_status = {item["asset"]: item["balance"] for item in cash_items}
         
         pipeline = [
+            {"$match": {"tenant_id": tenant_id}},
             {"$group": {"_id": "$profit_currency", "total_realized_profit": {"$sum": "$realized_profit"}}}
         ]
         profit_results = list(db.transactions.aggregate(pipeline))
         realized_profits = {r["_id"]: r["total_realized_profit"] for r in profit_results if r["_id"]}
         
-        sheets_manager.update_summary_sheet(cash_status, realized_profits)
+        sheets_manager.update_cash_and_profits(cash_status, realized_profits, tenant_id)
         
         return {
             "message": "Summary sheet updated successfully",

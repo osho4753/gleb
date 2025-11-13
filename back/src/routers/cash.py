@@ -1,7 +1,7 @@
 """
 Роутер для операций с кассой
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from datetime import datetime
 from ..db import db
@@ -9,6 +9,7 @@ from ..models import CashDeposit, CashWithdrawal
 from ..constants import CURRENCIES
 from ..google_sheets import sheets_manager
 from ..history_manager import history_manager
+from ..auth import get_current_tenant
 
 router = APIRouter(prefix="/cash", tags=["cash"])
 
@@ -20,89 +21,102 @@ class CashSetRequest(BaseModel):
 
 
 @router.post("/init")
-def init_cash():
-    """Инициализирует кассу с нулевыми балансами для всех валют"""
+def init_cash(tenant_id: str = Depends(get_current_tenant)):
+    """Инициализирует кассу с нулевыми балансами для всех валют для конкретного tenant"""
     initialized = []
     for asset in CURRENCIES:
-        existing = db.cash.find_one({"asset": asset})
+        existing = db.cash.find_one({"asset": asset, "tenant_id": tenant_id})
         if existing:
             db.cash.update_one(
-                {"asset": asset},
+                {"asset": asset, "tenant_id": tenant_id},
                 {"$set": {"balance": 0.0, "updated_at": datetime.utcnow()}}
             )
         else:
             db.cash.insert_one({
                 "asset": asset,
                 "balance": 0.0,
+                "tenant_id": tenant_id,
                 "updated_at": datetime.utcnow()
             })
         initialized.append(asset)
 
     return {
-        "message": "Cash register initialized with zero balances",
-        "assets": initialized
+        "message": f"Cash register initialized with zero balances for tenant {tenant_id}",
+        "assets": initialized,
+        "tenant_id": tenant_id
     }
 
 
 @router.post("/set")
-def set_cash(request: CashSetRequest):
-    """Устанавливает или обновляет баланс конкретной валюты"""
+def set_cash(request: CashSetRequest, tenant_id: str = Depends(get_current_tenant)):
+    """Устанавливает или обновляет баланс конкретной валюты для конкретного tenant"""
     asset = request.asset
     amount = request.amount
-    existing = db.cash.find_one({"asset": asset})
+    existing = db.cash.find_one({"asset": asset, "tenant_id": tenant_id})
     if existing:
         db.cash.update_one(
-            {"asset": asset},
+            {"asset": asset, "tenant_id": tenant_id},
             {"$set": {"balance": amount, "updated_at": datetime.utcnow()}}
         )
     else:
         db.cash.insert_one({
             "asset": asset,
             "balance": amount,
+            "tenant_id": tenant_id,
             "updated_at": datetime.utcnow()
         })
-    return {"message": f"Balance for {asset} set to {amount}"}
+    return {
+        "message": f"Balance for {asset} set to {amount} for tenant {tenant_id}",
+        "tenant_id": tenant_id
+    }
 
 
 @router.put("/{asset}")
-def update_cash_balance(asset: str, amount: float):
-    """Обновляет баланс существующей валюты"""
-    existing = db.cash.find_one({"asset": asset})
+def update_cash_balance(asset: str, amount: float, tenant_id: str = Depends(get_current_tenant)):
+    """Обновляет баланс существующей валюты для конкретного tenant"""
+    existing = db.cash.find_one({"asset": asset, "tenant_id": tenant_id})
     if not existing:
-        raise HTTPException(status_code=404, detail=f"Asset {asset} not found in cash")
+        raise HTTPException(status_code=404, detail=f"Asset {asset} not found in cash for tenant {tenant_id}")
     
     db.cash.update_one(
-        {"asset": asset},
+        {"asset": asset, "tenant_id": tenant_id},
         {"$set": {"balance": amount, "updated_at": datetime.utcnow()}}
     )
-    return {"message": f"Balance for {asset} updated to {amount}"}
+    return {
+        "message": f"Balance for {asset} updated to {amount} for tenant {tenant_id}",
+        "tenant_id": tenant_id
+    }
 
 
 @router.delete("/{asset}")
-def delete_cash_asset(asset: str):
-    """Удаляет валюту из кассы"""
-    existing = db.cash.find_one({"asset": asset})
+def delete_cash_asset(asset: str, tenant_id: str = Depends(get_current_tenant)):
+    """Удаляет валюту из кассы для конкретного tenant"""
+    existing = db.cash.find_one({"asset": asset, "tenant_id": tenant_id})
     if not existing:
-        raise HTTPException(status_code=404, detail=f"Asset {asset} not found in cash")
+        raise HTTPException(status_code=404, detail=f"Asset {asset} not found in cash for tenant {tenant_id}")
     
-    result = db.cash.delete_one({"asset": asset})
+    result = db.cash.delete_one({"asset": asset, "tenant_id": tenant_id})
     if result.deleted_count > 0:
-        return {"message": f"Asset {asset} removed from cash"}
+        return {
+            "message": f"Asset {asset} removed from cash for tenant {tenant_id}",
+            "tenant_id": tenant_id
+        }
     else:
-        raise HTTPException(status_code=500, detail=f"Failed to remove {asset} from cash")
+        raise HTTPException(status_code=500, detail=f"Failed to remove {asset} from cash for tenant {tenant_id}")
 
 
 @router.post("/deposit")
-def deposit_to_cash(deposit: CashDeposit):
-    """Пополнение кассы с сохранением как транзакции"""
+def deposit_to_cash(deposit: CashDeposit, tenant_id: str = Depends(get_current_tenant)):
+    """Пополнение кассы с сохранением как транзакции для конкретного tenant"""
     
     # Проверяем/создаем актив в кассе
-    existing = db.cash.find_one({"asset": deposit.asset})
+    existing = db.cash.find_one({"asset": deposit.asset, "tenant_id": tenant_id})
     if not existing:
         # Создаем новый актив с нулевым балансом
         db.cash.insert_one({
             "asset": deposit.asset,
             "balance": 0.0,
+            "tenant_id": tenant_id,
             "updated_at": datetime.utcnow()
         })
         old_balance = 0.0
@@ -114,12 +128,13 @@ def deposit_to_cash(deposit: CashDeposit):
     # Обновляем баланс в кассе
     # Сохраняем снимок состояния ПЕРЕД пополнением
     history_manager.save_snapshot(
+        tenant_id=tenant_id,
         operation_type="deposit",
         description=f"Deposit {deposit.amount} {deposit.asset}"
     )
     
     db.cash.update_one(
-        {"asset": deposit.asset},
+        {"asset": deposit.asset, "tenant_id": tenant_id},
         {"$set": {"balance": new_balance, "updated_at": datetime.utcnow()}}
     )
     
@@ -137,6 +152,7 @@ def deposit_to_cash(deposit: CashDeposit):
         "profit": 0,  # нет прибыли
         "note": deposit.note or "",
         "created_at": deposit.created_at,
+        "tenant_id": tenant_id,
         "is_modified": False
     }
     
@@ -147,41 +163,43 @@ def deposit_to_cash(deposit: CashDeposit):
 
     # Try to write to Google Sheets (don't fail the request if Sheets is down)
     try:
-        sheets_manager.add_transaction(deposit_transaction)
+        sheets_manager.add_transaction(deposit_transaction, tenant_id)
         
-        # Обновляем сводный лист
-        cash_items = list(db.cash.find({}, {"_id": 0}))
+        # Обновляем сводный лист для конкретного tenant
+        cash_items = list(db.cash.find({"tenant_id": tenant_id}, {"_id": 0}))
         cash_status = {item["asset"]: item["balance"] for item in cash_items}
         
         pipeline = [
+            {"$match": {"tenant_id": tenant_id}},
             {"$group": {"_id": "$profit_currency", "total_realized_profit": {"$sum": "$realized_profit"}}}
         ]
         profit_results = list(db.transactions.aggregate(pipeline))
         realized_profits = {r["_id"]: r["total_realized_profit"] for r in profit_results if r["_id"]}
         
-        sheets_manager.update_summary_sheet(cash_status, realized_profits)
+        sheets_manager.update_cash_and_profits(cash_status, realized_profits, tenant_id)
     except Exception as e:
         print(f"Failed to add cash deposit to Google Sheets: {e}")
 
     return {
-        "message": f"Deposited {deposit.amount} {deposit.asset} to cash",
+        "message": f"Deposited {deposit.amount} {deposit.asset} to cash for tenant {tenant_id}",
         "asset": deposit.asset,
         "amount": deposit.amount,
         "old_balance": old_balance,
         "new_balance": new_balance,
         "note": deposit.note,
+        "tenant_id": tenant_id,
         "transaction_id": str(transaction_result.inserted_id)
     }
 
 
 @router.post("/withdrawal")
-def withdraw_from_cash(withdrawal: CashWithdrawal):
-    """Вычет средств из кассы с сохранением как транзакции"""
+def withdraw_from_cash(withdrawal: CashWithdrawal, tenant_id: str = Depends(get_current_tenant)):
+    """Вычет средств из кассы с сохранением как транзакции для конкретного tenant"""
     
     # Проверяем существование актива в кассе
-    existing = db.cash.find_one({"asset": withdrawal.asset})
+    existing = db.cash.find_one({"asset": withdrawal.asset, "tenant_id": tenant_id})
     if not existing:
-        raise HTTPException(status_code=404, detail=f"Asset {withdrawal.asset} not found in cash")
+        raise HTTPException(status_code=404, detail=f"Asset {withdrawal.asset} not found in cash for tenant {tenant_id}")
     
     old_balance = existing["balance"]
     
@@ -189,20 +207,21 @@ def withdraw_from_cash(withdrawal: CashWithdrawal):
     if old_balance < withdrawal.amount:
         raise HTTPException(
             status_code=400, 
-            detail=f"Insufficient balance. Available: {old_balance} {withdrawal.asset}, requested: {withdrawal.amount}"
+            detail=f"Insufficient balance for tenant {tenant_id}. Available: {old_balance} {withdrawal.asset}, requested: {withdrawal.amount}"
         )
     
     new_balance = old_balance - withdrawal.amount
     
     # Сохраняем снимок состояния ПЕРЕД выводом
     history_manager.save_snapshot(
+        tenant_id=tenant_id,
         operation_type="withdrawal",
         description=f"Withdrawal {withdrawal.amount} {withdrawal.asset}"
     )
     
     # Обновляем баланс в кассе
     db.cash.update_one(
-        {"asset": withdrawal.asset},
+        {"asset": withdrawal.asset, "tenant_id": tenant_id},
         {"$set": {"balance": new_balance, "updated_at": datetime.utcnow()}}
     )
     
@@ -220,6 +239,7 @@ def withdraw_from_cash(withdrawal: CashWithdrawal):
         "profit": 0,  # нет прибыли
         "note": withdrawal.note or "",
         "created_at": withdrawal.created_at,
+        "tenant_id": tenant_id,
         "is_modified": False
     }
     
@@ -230,40 +250,45 @@ def withdraw_from_cash(withdrawal: CashWithdrawal):
 
     # Try to write to Google Sheets (don't fail the request if Sheets is down)
     try:
-        sheets_manager.add_transaction(withdrawal_transaction)
+        sheets_manager.add_transaction(withdrawal_transaction, tenant_id)
         
-        # Обновляем сводный лист
-        cash_items = list(db.cash.find({}, {"_id": 0}))
+        # Обновляем сводный лист для конкретного tenant
+        cash_items = list(db.cash.find({"tenant_id": tenant_id}, {"_id": 0}))
         cash_status = {item["asset"]: item["balance"] for item in cash_items}
         
         pipeline = [
+            {"$match": {"tenant_id": tenant_id}},
             {"$group": {"_id": "$profit_currency", "total_realized_profit": {"$sum": "$realized_profit"}}}
         ]
         profit_results = list(db.transactions.aggregate(pipeline))
         realized_profits = {r["_id"]: r["total_realized_profit"] for r in profit_results if r["_id"]}
         
-        sheets_manager.update_summary_sheet(cash_status, realized_profits)
+        sheets_manager.update_cash_and_profits(cash_status, realized_profits, tenant_id)
     except Exception as e:
         print(f"Failed to add cash withdrawal to Google Sheets: {e}")
 
     return {
-        "message": f"Withdrawn {withdrawal.amount} {withdrawal.asset} from cash",
+        "message": f"Withdrawn {withdrawal.amount} {withdrawal.asset} from cash for tenant {tenant_id}",
         "asset": withdrawal.asset,
         "amount": withdrawal.amount,
         "old_balance": old_balance,
         "new_balance": new_balance,
         "note": withdrawal.note,
+        "tenant_id": tenant_id,
         "transaction_id": str(transaction_result.inserted_id)
     }
 
 
 @router.get("/status")
-def get_cash_status():
-    """Показать все активы и их балансы"""
+def get_cash_status(tenant_id: str = Depends(get_current_tenant)):
+    """Показать все активы и их балансы для конкретного tenant"""
     try:
-        items = list(db.cash.find({}, {"_id": 0}))
+        items = list(db.cash.find({"tenant_id": tenant_id}, {"_id": 0}))
         total_assets = {item["asset"]: item["balance"] for item in items}
-        return {"cash": total_assets}
+        return {
+            "cash": total_assets,
+            "tenant_id": tenant_id
+        }
     except Exception as e:
         print(f"Database error in get_cash_status: {e}")
         # Возвращаем пустые данные при ошибке подключения к БД
@@ -271,13 +296,14 @@ def get_cash_status():
 
 
 @router.get("/profit")
-def get_total_profit():
+def get_total_profit(tenant_id: str = Depends(get_current_tenant)):
     """
     Возвращает суммарную реализованную прибыль, сгруппированную по валюте прибыли.
     """
     from ..constants import FIAT_ASSETS
     
     pipeline = [
+        {"$match": {"tenant_id": tenant_id}},
         {"$group": {"_id": "$profit_currency", "total_realized_profit": {"$sum": "$realized_profit"}}}
     ]
     results = list(db.transactions.aggregate(pipeline))
@@ -290,17 +316,18 @@ def get_total_profit():
 
     return {
         "profits_by_currency": profits,
-        "message": "Realized profit grouped by profit currency"
+        "message": f"Realized profit for tenant {tenant_id} grouped by profit currency",
+        "tenant_id": tenant_id
     }
 
 
 @router.get("/cashflow_profit")
-def get_cashflow_profit():
+def get_cashflow_profit(tenant_id: str = Depends(get_current_tenant)):
     """
     Считает чистую прибыль/убыток по каждой валюте через поток кассы:
     - profit = все, что получили в этой валюте - все, что отдали из кассы в этой валюте
     """
-    txs = list(db.transactions.find())
+    txs = list(db.transactions.find({"tenant_id": tenant_id}))
     cashflow_profit = {}
 
     for tx in txs:
@@ -331,5 +358,6 @@ def get_cashflow_profit():
 
     return {
         "cashflow_profit_by_currency": cashflow_profit,
-        "message": "Net profit calculated from actual cash flow for each currency"
+        "message": f"Net profit for tenant {tenant_id} calculated from actual cash flow for each currency",
+        "tenant_id": tenant_id
     }

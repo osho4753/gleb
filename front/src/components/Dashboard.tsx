@@ -2,8 +2,10 @@ import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { RefreshCwIcon, TrashIcon } from 'lucide-react'
 import { config } from '../config'
+import { useAuth } from '../services/authService'
 
 const API_BASE = config.apiBaseUrl
+
 type CashStatus = {
   cash?: Record<string, number>
 }
@@ -36,19 +38,19 @@ interface ProfitSummary {
 
 export function Dashboard() {
   const [cashStatus, setCashStatus] = useState<CashStatus>({})
-  const [cashProfit, setCashProfit] = useState<CashProfit>({})
   const [realizedProfit, setRealizedProfit] = useState<CashProfit>({})
   const [profitSummaries, setProfitSummaries] = useState<
     Record<string, ProfitSummary>
   >({})
   const [loading, setLoading] = useState(false)
+  const { authenticatedFetch } = useAuth()
   const fetchData = async () => {
     setLoading(true)
     try {
       const [statusRes, cashflowRes, realizedRes] = await Promise.all([
-        fetch(`${API_BASE}/cash/status`),
-        fetch(`${API_BASE}/cash/cashflow_profit`),
-        fetch(`${API_BASE}/cash/profit`),
+        authenticatedFetch(`${API_BASE}/cash/status`),
+        authenticatedFetch(`${API_BASE}/cash/cashflow_profit`),
+        authenticatedFetch(`${API_BASE}/cash/profit`),
       ])
 
       if (statusRes.ok) {
@@ -57,8 +59,8 @@ export function Dashboard() {
       }
 
       if (cashflowRes.ok) {
-        const cashflowData = await cashflowRes.json()
-        setCashProfit(cashflowData)
+        await cashflowRes.json()
+        // Cashflow data не используется в UI
       }
 
       if (realizedRes.ok) {
@@ -72,7 +74,7 @@ export function Dashboard() {
 
       for (const currency of currencies) {
         try {
-          const summaryRes = await fetch(
+          const summaryRes = await authenticatedFetch(
             `${API_BASE}/transactions/profit-summary/${currency}`
           )
           if (summaryRes.ok) {
@@ -92,7 +94,7 @@ export function Dashboard() {
   const handleReset = async () => {
     if (!confirm('Вы уверены, что хотите сбросить кассу?')) return
     try {
-      const res = await fetch(`${API_BASE}/reset-all`, {
+      const res = await authenticatedFetch(`${API_BASE}/reset-all`, {
         method: 'DELETE',
       })
       if (res.ok) {
@@ -114,7 +116,7 @@ export function Dashboard() {
     )
       return
     try {
-      const res = await fetch(`${API_BASE}/reset-all-data`, {
+      const res = await authenticatedFetch(`${API_BASE}/reset-all-data`, {
         method: 'DELETE',
       })
       if (res.ok) {

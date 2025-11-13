@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Toaster } from 'sonner'
 import { Dashboard } from './components/Dashboard'
 import { CashManager } from './components/CashManager'
@@ -6,15 +6,79 @@ import { TransactionsManager } from './components/TransactionsManager'
 import { TransactionsHistory } from './components/TransactionsHistory'
 import { FiatLotsViewer } from './components/FiatLotsViewer'
 import { PnLMatches } from './components/PnLMatches'
+import { LoginScreen } from './components/LoginScreen'
+import { GoogleSheetsModal } from './components/GoogleSheetsModal'
+import { GoogleSheetsIcon } from './components/GoogleSheetsIcon'
+import { useAuth, TenantInfo } from './services/authService'
+
 export function App() {
   const [activeTab, setActiveTab] = useState('dashboard')
+  const [isGoogleSheetsModalOpen, setIsGoogleSheetsModalOpen] = useState(false)
+  const [tenantInfo, setTenantInfo] = useState<TenantInfo | null>(null)
+  const { isAuthenticated, login, logout, getTenantInfo } = useAuth()
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      getTenantInfo()
+        .then((info) => {
+          setTenantInfo(info)
+        })
+        .catch((error) => {
+          console.error('Ошибка загрузки информации о tenant:', error)
+        })
+    } else {
+      setTenantInfo(null)
+    }
+  }, [isAuthenticated])
+
+  // Если не аутентифицирован, показываем экран входа
+  if (!isAuthenticated) {
+    return <LoginScreen onLoginSuccess={login} />
+  }
+
   return (
     <div className="w-full min-h-screen bg-gray-50">
       <Toaster position="top-right" />
       <div className="max-w-7xl mx-auto p-3 sm:p-6">
-        <h1 className="text-2xl sm:text-3xl font-bold mb-4 sm:mb-6">
-          Панель Обменника
-        </h1>
+        <div className="flex justify-between items-center mb-4 sm:mb-6">
+          <div>
+            <h1 className="text-2xl sm:text-3xl font-bold">Панель Обменника</h1>
+            {tenantInfo && (
+              <p className="text-sm text-gray-600 mt-1">
+                <span className="font-medium text-blue-600">
+                  {tenantInfo.name}
+                </span>
+              </p>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            {/* Google Sheets Icon */}
+            <GoogleSheetsIcon
+              onOpenModal={() => setIsGoogleSheetsModalOpen(true)}
+            />
+
+            {/* Logout Button */}
+            <button
+              onClick={logout}
+              className="px-4 py-2 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors flex items-center gap-2"
+            >
+              <svg
+                className="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
+                />
+              </svg>
+              Выйти
+            </button>
+          </div>
+        </div>
         <div className="mb-6 border-b">
           <div className="flex gap-1 sm:gap-2 overflow-x-auto scrollbar-hide">
             <button
@@ -96,6 +160,12 @@ export function App() {
           {activeTab === 'pnl' && <PnLMatches />}
         </div>
       </div>
+
+      {/* Google Sheets Modal */}
+      <GoogleSheetsModal
+        isOpen={isGoogleSheetsModalOpen}
+        onClose={() => setIsGoogleSheetsModalOpen(false)}
+      />
     </div>
   )
 }

@@ -9,6 +9,7 @@ import {
   UndoIcon,
 } from 'lucide-react'
 import { config } from '../config'
+import { useAuth } from '../services/authService'
 import { evaluate } from 'mathjs'
 
 const API_BASE = config.apiBaseUrl
@@ -300,6 +301,7 @@ export function TransactionsHistory() {
   const [itemsPerPage, setItemsPerPage] = useState(10)
   const [sortBy, setSortBy] = useState('created_at')
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
+  const { authenticatedFetch } = useAuth()
   const [dateFilter, setDateFilter] = useState({ from: '', to: '' })
   const [currencyFilter, setCurrencyFilter] = useState('')
 
@@ -308,7 +310,7 @@ export function TransactionsHistory() {
   const fetchTransactions = async () => {
     setLoading(true)
     try {
-      const res = await fetch(`${API_BASE}/transactions`)
+      const res = await authenticatedFetch(`${API_BASE}/transactions`)
       if (res.ok) {
         const data = await res.json()
         setTransactions(data)
@@ -335,13 +337,16 @@ export function TransactionsHistory() {
         throw new Error('Invalid transaction ID')
       }
 
-      const res = await fetch(`${API_BASE}/transactions/${transactionId}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(updateData),
-      })
+      const res = await authenticatedFetch(
+        `${API_BASE}/transactions/${transactionId}`,
+        {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(updateData),
+        }
+      )
 
       if (res.ok) {
         toast.success('Транзакция обновлена')
@@ -371,9 +376,12 @@ export function TransactionsHistory() {
         throw new Error('Invalid transaction ID')
       }
 
-      const res = await fetch(`${API_BASE}/transactions/${transactionId}`, {
-        method: 'DELETE',
-      })
+      const res = await authenticatedFetch(
+        `${API_BASE}/transactions/${transactionId}`,
+        {
+          method: 'DELETE',
+        }
+      )
 
       if (res.ok) {
         toast.success('Транзакция удалена')
@@ -402,9 +410,12 @@ export function TransactionsHistory() {
       return
 
     try {
-      const res = await fetch(`${API_BASE}/reset-all-transactions`, {
-        method: 'DELETE',
-      })
+      const res = await authenticatedFetch(
+        `${API_BASE}/reset-all-transactions`,
+        {
+          method: 'DELETE',
+        }
+      )
 
       if (res.ok) {
         toast.success('Все транзакции удалены')
@@ -538,13 +549,15 @@ export function TransactionsHistory() {
   // Функция отмены последней операции
   const handleUndo = async () => {
     try {
-      const res = await fetch(`${API_BASE}/undo`, {
+      const res = await authenticatedFetch(`${API_BASE}/undo`, {
         method: 'POST',
       })
       if (res.ok) {
         const data = await res.json()
         toast.success(
-          `Отменено: ${data.restored_description || data.restored_operation}`
+          `✅ Операция отменена: ${
+            data.restored_description || data.restored_operation
+          }. Google Таблица обновлена.`
         )
         fetchTransactions()
       } else {
@@ -566,7 +579,7 @@ export function TransactionsHistory() {
       console.log('Экспорт CSV:', { endpoint, simple, API_BASE })
       toast.info('Загрузка CSV файла...')
 
-      const response = await fetch(endpoint)
+      const response = await authenticatedFetch(endpoint)
 
       console.log('Ответ сервера:', {
         status: response.status,

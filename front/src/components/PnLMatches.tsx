@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { RefreshCwIcon, ChevronDownIcon } from 'lucide-react'
 import { config } from '../config'
+import { useAuth } from '../services/authService'
 
 const API_BASE = config.apiBaseUrl
 
@@ -25,12 +26,13 @@ type PnLMatch = {
 export function PnLMatches() {
   const [matches, setMatches] = useState<PnLMatch[]>([])
   const [loading, setLoading] = useState(false)
+    const { authenticatedFetch } = useAuth()
   const [expandedCurrency, setExpandedCurrency] = useState<string | null>(null)
 
   const fetchMatches = async () => {
     setLoading(true)
     try {
-      const res = await fetch(`${API_BASE}/transactions/pnl-matches`)
+      const res = await authenticatedFetch(`${API_BASE}/transactions/pnl-matches`)
       if (res.ok) {
         const data = await res.json()
         setMatches(data.matches || [])

@@ -1,7 +1,7 @@
 """
 Роутер для операций с транзакциями
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import StreamingResponse
 from bson import ObjectId
 from datetime import datetime
@@ -13,16 +13,21 @@ from ..models import Transaction, TransactionUpdate
 from ..constants import FIAT_ASSETS, SPECIAL_FIAT
 from ..google_sheets import sheets_manager
 from ..history_manager import history_manager
+from ..auth import get_current_tenant
 
 router = APIRouter(prefix="/transactions", tags=["transactions"])
 
 
 @router.post("")
-def create_transaction(tx: Transaction):
+def create_transaction(tx: Transaction, tenant_id: str = Depends(get_current_tenant)):
+    # Устанавливаем tenant_id для изоляции данных
+    tx.tenant_id = tenant_id
+    
     # Сохраняем снимок состояния ПЕРЕД созданием транзакции
     history_manager.save_snapshot(
         operation_type="create_transaction",
-        description=f"Creating {tx.type}: {tx.from_asset} → {tx.to_asset}"
+        description=f"Creating {tx.type}: {tx.from_asset} → {tx.to_asset}",
+        tenant_id=tenant_id
     )
     
     # --- Проверки ---
@@ -75,15 +80,25 @@ def create_transaction(tx: Transaction):
         fee_direction = "none"
      
 
-    from_cash = db.cash.find_one({"asset": tx.from_asset})
-    to_cash = db.cash.find_one({"asset": tx.to_asset})
+    from_cash = db.cash.find_one({"asset": tx.from_asset, "tenant_id": tenant_id})
+    to_cash = db.cash.find_one({"asset": tx.to_asset, "tenant_id": tenant_id})
 
     if not from_cash:
-        db.cash.insert_one({"asset": tx.from_asset, "balance": 0.0, "updated_at": datetime.utcnow()})
+        db.cash.insert_one({
+            "asset": tx.from_asset, 
+            "balance": 0.0, 
+            "tenant_id": tenant_id,
+            "updated_at": datetime.utcnow()
+        })
         from_cash = {"asset": tx.from_asset, "balance": 0.0}
 
     if not to_cash:
-        db.cash.insert_one({"asset": tx.to_asset, "balance": 0.0, "updated_at": datetime.utcnow()})
+        db.cash.insert_one({
+            "asset": tx.to_asset, 
+            "balance": 0.0, 
+            "tenant_id": tenant_id,
+            "updated_at": datetime.utcnow()
+        })
         to_cash = {"asset": tx.to_asset, "balance": 0.0}
 
 
@@ -100,8 +115,8 @@ def create_transaction(tx: Transaction):
         if to_cash["balance"] < tx.amount_to_final:
             raise HTTPException(status_code=400, detail=f"Not enough {tx.to_asset} in cash")
         
-        db.cash.update_one({"asset": tx.to_asset}, {"$inc": {"balance": -tx.amount_to_final}})
-        db.cash.update_one({"asset": tx.from_asset}, {"$inc": {"balance": tx.amount_from}})
+        db.cash.update_one({"asset": tx.to_asset, "tenant_id": tenant_id}, {"$inc": {"balance": -tx.amount_to_final}})
+        db.cash.update_one({"asset": tx.from_asset, "tenant_id": tenant_id}, {"$inc": {"balance": tx.amount_from}})
         
         # Создаём лот фиата (этот кэш позже "сгорит" при покупках USDT за этот же фиат)
         fiat_currency = tx.from_asset           # 'CZK' | 'EUR' | 'USD'
@@ -112,6 +127,7 @@ def create_transaction(tx: Transaction):
         lot_rate_eff = fiat_in_fact / usdt_out_fact
 
         db.fiat_lots.insert_one({
+            "tenant_id": tenant_id,                   # изоляция по tenant
             "currency": fiat_currency,                # в какой валюте этот лот
             "remaining": float(fiat_in_fact),         # сколько фиата осталось в этом лоте
             "rate": float(lot_rate_eff),              # эффективный курс с учетом комиссии (FIAT/USDT)
@@ -155,9 +171,13 @@ def create_transaction(tx: Transaction):
         
         while need > eps:
             lot = db.fiat_lots.find_one(
-                {"currency": from_asset_currency, "remaining": {"$gt": 0}},
-                sort=[("created_at", 1)]
-            )
+                    {
+                        "currency": from_asset_currency, 
+                        "remaining": {"$gt": 0},
+                        "tenant_id": tenant_id  # <-- ДОБАВИТЬ ЭТОТ ФИЛЬТР
+                    },
+                    sort=[("created_at", 1)]
+                )
             if not lot:
                 print(f"WARNING: No {from_asset_currency} lots available for FIFO calculation in fiat_to_fiat")
                 break
@@ -190,8 +210,8 @@ def create_transaction(tx: Transaction):
             tx.rate_usdt_of_fiat_in = float(rate_usdt_of_fiat_in.quantize(D("0.0001"), rounding=ROUND_HALF_UP))
         
         # Обновляем кассу
-        db.cash.update_one({"asset": tx.from_asset}, {"$inc": {"balance": -tx.amount_from}})
-        db.cash.update_one({"asset": tx.to_asset}, {"$inc": {"balance": tx.amount_to_final}})
+        db.cash.update_one({"asset": tx.from_asset, "tenant_id": tenant_id}, {"$inc": {"balance": -tx.amount_from}})
+        db.cash.update_one({"asset": tx.to_asset, "tenant_id": tenant_id}, {"$inc": {"balance": tx.amount_to_final}})
 
     elif tx.type == "crypto_to_fiat" and tx.from_asset == "USDT" and tx.to_asset in FIAT_ASSETS:
         # Двухэтапная логика FIFO по фиатным лотам
@@ -217,7 +237,8 @@ def create_transaction(tx: Transaction):
                 {
                     "currency": fiat_currency,
                     "remaining": {"$gt": 0},
-                    "meta.source": "fiat_to_crypto"  # Только живые лоты
+                    "meta.source": "fiat_to_crypto",
+                    "tenant_id": tenant_id  # <-- ДОБАВИТЬ ЭТОТ ФИЛЬТР
                 },
                 sort=[("created_at", 1)]
             )
@@ -243,10 +264,11 @@ def create_transaction(tx: Transaction):
 
             # уменьшаем остаток лота
             new_rem = (lot_rem - take).quantize(D("0.0000001"))
-            db.fiat_lots.update_one({"_id": lot["_id"]}, {"$set": {"remaining": float(new_rem)}})
+            db.fiat_lots.update_one({"_id": lot["_id"], "tenant_id": tenant_id}, {"$set": {"remaining": float(new_rem)}})
 
             # лог матчинга (удобно для аудита/отчётов)
             db.pnl_matches.insert_one({
+                "tenant_id": tenant_id,
                 "currency": fiat_currency,
                 "open_lot_id": str(lot["_id"]),
                 "close_tx_id": None,
@@ -268,7 +290,8 @@ def create_transaction(tx: Transaction):
                 {
                     "currency": fiat_currency,
                     "remaining": {"$gt": 0},
-                    "meta.source": "fiat_to_fiat"  # Лоты из обменных пунктов
+                    "meta.source": "fiat_to_fiat",
+                    "tenant_id": tenant_id  # <-- ДОБАВИТЬ ЭТОТ ФИЛЬТР
                 },
                 sort=[("created_at", 1)]
             )
@@ -368,6 +391,7 @@ def create_transaction(tx: Transaction):
         lot_rate_to = fiat_in_fact_to / D(str(tx.cost_usdt_of_fiat_in))
         
         db.fiat_lots.insert_one({
+            "tenant_id": tenant_id,
             "currency": fiat_currency_to,
             "remaining": float(fiat_in_fact_to),
             "rate": float(lot_rate_to),
@@ -382,8 +406,8 @@ def create_transaction(tx: Transaction):
     
     # Обновляем кассу ТОЛЬКО после успешного расчета прибыли (если это crypto_to_fiat)
     if tx.type == "crypto_to_fiat":
-        db.cash.update_one({"asset": tx.to_asset}, {"$inc": {"balance": -tx.amount_to_final}})
-        db.cash.update_one({"asset": tx.from_asset}, {"$inc": {"balance": tx.amount_from}})
+        db.cash.update_one({"asset": tx.to_asset, "tenant_id": tenant_id}, {"$inc": {"balance": -tx.amount_to_final}})
+        db.cash.update_one({"asset": tx.from_asset, "tenant_id": tenant_id}, {"$inc": {"balance": tx.amount_from}})
 
     tx.profit = float(realized_profit)
 
@@ -396,20 +420,21 @@ def create_transaction(tx: Transaction):
     tx_data["_id"] = result.inserted_id
     
     # Добавляем в Google Sheets
-    sheets_manager.add_transaction(tx_data)
+    sheets_manager.add_transaction(tx_data, tenant_id)
     
     # Обновляем сводный лист с кассой и прибылью
     try:
-        cash_items = list(db.cash.find({}, {"_id": 0}))
+        cash_items = list(db.cash.find({"tenant_id": tenant_id}, {"_id": 0}))
         cash_status = {item["asset"]: item["balance"] for item in cash_items}
         
         pipeline = [
+            {"$match": {"tenant_id": tenant_id}},
             {"$group": {"_id": "$profit_currency", "total_realized_profit": {"$sum": "$realized_profit"}}}
         ]
         profit_results = list(db.transactions.aggregate(pipeline))
         realized_profits = {r["_id"]: r["total_realized_profit"] for r in profit_results if r["_id"]}
         
-        sheets_manager.update_summary_sheet(cash_status, realized_profits)
+        sheets_manager.update_cash_and_profits(cash_status, realized_profits, tenant_id)
     except Exception as e:
         print(f"Failed to update summary sheet: {e}")
 
@@ -431,18 +456,18 @@ def create_transaction(tx: Transaction):
 
 
 @router.get("")
-def get_transactions():
-    txs = list(db.transactions.find())
+def get_transactions(tenant_id: str = Depends(get_current_tenant)):
+    txs = list(db.transactions.find({"tenant_id": tenant_id}))
     for t in txs:
         t["_id"] = str(t["_id"])
     return txs
 
 
 @router.get("/export/csv")
-def export_transactions_csv():
+def export_transactions_csv(tenant_id: str = Depends(get_current_tenant)):
     """Экспорт всех транзакций в CSV для Excel"""
-    # Получаем все транзакции
-    txs = list(db.transactions.find().sort("created_at", 1))
+    # Получаем все транзакции для текущего tenant
+    txs = list(db.transactions.find({"tenant_id": tenant_id}).sort("created_at", 1))
     
     # Создаем StringIO для записи CSV
     output = StringIO()
@@ -533,10 +558,10 @@ def export_transactions_csv():
 
 
 @router.get("/export/csv/simple")
-def export_transactions_simple_csv():
+def export_transactions_simple_csv(tenant_id: str = Depends(get_current_tenant)):
     """Упрощенный экспорт: только принял/выдал"""
-    # Получаем все транзакции
-    txs = list(db.transactions.find().sort("created_at", 1))
+    # Получаем все транзакции для текущего tenant
+    txs = list(db.transactions.find({"tenant_id": tenant_id}).sort("created_at", 1))
     
     # Создаем StringIO для записи CSV
     output = StringIO()
@@ -616,27 +641,27 @@ def export_transactions_simple_csv():
 
 
 @router.get("/fiat-lots")
-def get_fiat_lots():
+def get_fiat_lots(tenant_id: str = Depends(get_current_tenant)):
     """Получить все фиатные лоты для аудита"""
-    lots = list(db.fiat_lots.find())
+    lots = list(db.fiat_lots.find({"tenant_id": tenant_id}))
     for lot in lots:
         lot["_id"] = str(lot["_id"])
     return {"lots": lots}
 
 
 @router.get("/pnl-matches")
-def get_pnl_matches():
+def get_pnl_matches(tenant_id: str = Depends(get_current_tenant)):
     """Получить все PnL матчи для аудита"""
-    matches = list(db.pnl_matches.find())
+    matches = list(db.pnl_matches.find({"tenant_id": tenant_id}))
     for match in matches:
         match["_id"] = str(match["_id"])
     return {"matches": matches}
 
 
 @router.get("/fiat-lots/{currency}")
-def get_fiat_lots_by_currency(currency: str):
+def get_fiat_lots_by_currency(currency: str, tenant_id: str = Depends(get_current_tenant)):
     """Получить фиатные лоты по валюте"""
-    lots = list(db.fiat_lots.find({"currency": currency}))
+    lots = list(db.fiat_lots.find({"currency": currency, "tenant_id": tenant_id}))
     for lot in lots:
         lot["_id"] = str(lot["_id"])
     
@@ -650,15 +675,15 @@ def get_fiat_lots_by_currency(currency: str):
 
 
 @router.get("/profit-summary/{currency}")
-def get_profit_summary(currency: str):
+def get_profit_summary(currency: str, tenant_id: str = Depends(get_current_tenant)):
     """Получить сводку по прибыли в конкретной валюте"""
     # Общая прибыль из PnL матчей
-    matches = list(db.pnl_matches.find({"currency": currency}))
+    matches = list(db.pnl_matches.find({"currency": currency, "tenant_id": tenant_id}))
     total_pnl_fiat = sum(match["pnl_fiat"] for match in matches)
     total_pnl_usdt = sum(match["pnl_usdt"] for match in matches)
     
     # Оставшиеся лоты
-    lots = list(db.fiat_lots.find({"currency": currency, "remaining": {"$gt": 0}}))
+    lots = list(db.fiat_lots.find({"currency": currency, "remaining": {"$gt": 0}, "tenant_id": tenant_id}))
     remaining_value = sum(lot["remaining"] for lot in lots)
     
     # Анализ курсов активных лотов
@@ -697,10 +722,10 @@ def get_profit_summary(currency: str):
 
 
 @router.get("/{transaction_id}")
-def get_transaction(transaction_id: str):
+def get_transaction(transaction_id: str, tenant_id: str = Depends(get_current_tenant)):
     """Получить конкретную транзакцию по ID"""
     try:
-        tx = db.transactions.find_one({"_id": ObjectId(transaction_id)})
+        tx = db.transactions.find_one({"_id": ObjectId(transaction_id), "tenant_id": tenant_id})
         if not tx:
             raise HTTPException(status_code=404, detail="Transaction not found")
         tx["_id"] = str(tx["_id"])
@@ -710,14 +735,14 @@ def get_transaction(transaction_id: str):
 
 
 @router.put("/{transaction_id}")
-def update_transaction(transaction_id: str, update_data: TransactionUpdate):
+def update_transaction(transaction_id: str, update_data: TransactionUpdate, tenant_id: str = Depends(get_current_tenant)):
     """Обновить существующую транзакцию"""
     try:
         print(f"Updating transaction with ID: {transaction_id}")  # Добавляем логирование
         print(f"Update data: {update_data.dict()}")  # Логируем данные для обновления
         
-        # Проверяем существование транзакции
-        existing_tx = db.transactions.find_one({"_id": ObjectId(transaction_id)})
+        # Проверяем существование транзакции для текущего tenant
+        existing_tx = db.transactions.find_one({"_id": ObjectId(transaction_id), "tenant_id": tenant_id})
         if not existing_tx:
             print(f"Transaction not found: {transaction_id}")  # Логируем если не найдена
             raise HTTPException(status_code=404, detail="Transaction not found")
@@ -725,7 +750,8 @@ def update_transaction(transaction_id: str, update_data: TransactionUpdate):
         # Сохраняем снимок состояния ПЕРЕД обновлением
         history_manager.save_snapshot(
             operation_type="update_transaction",
-            description=f"Updating transaction {transaction_id}"
+            description=f"Updating transaction {transaction_id}",
+            tenant_id=tenant_id
         )
         
         # Подготавливаем данные для обновления
@@ -792,20 +818,21 @@ def update_transaction(transaction_id: str, update_data: TransactionUpdate):
             updated_tx["_id"] = str(updated_tx["_id"])
             
             # Обновляем в Google Sheets
-            sheets_manager.update_transaction(transaction_id, updated_tx)
+            sheets_manager.update_transaction(transaction_id, updated_tx, tenant_id)
             
             # Обновляем сводный лист
             try:
-                cash_items = list(db.cash.find({}, {"_id": 0}))
+                cash_items = list(db.cash.find({"tenant_id": tenant_id}, {"_id": 0}))
                 cash_status = {item["asset"]: item["balance"] for item in cash_items}
                 
                 pipeline = [
+                    {"$match": {"tenant_id": tenant_id}},
                     {"$group": {"_id": "$profit_currency", "total_realized_profit": {"$sum": "$realized_profit"}}}
                 ]
                 profit_results = list(db.transactions.aggregate(pipeline))
                 realized_profits = {r["_id"]: r["total_realized_profit"] for r in profit_results if r["_id"]}
                 
-                sheets_manager.update_summary_sheet(cash_status, realized_profits)
+                sheets_manager.update_cash_and_profits(cash_status, realized_profits, tenant_id)
             except Exception as e:
                 print(f"Failed to update summary sheet: {e}")
             
@@ -821,12 +848,12 @@ def update_transaction(transaction_id: str, update_data: TransactionUpdate):
 
 
 @router.delete("/{transaction_id}")
-def delete_transaction(transaction_id: str):
+def delete_transaction(transaction_id: str, tenant_id: str = Depends(get_current_tenant)):
     """Удалить конкретную транзакцию"""
     try:
         print(f"Deleting transaction with ID: {transaction_id}")  # Добавляем логирование
         
-        existing_tx = db.transactions.find_one({"_id": ObjectId(transaction_id)})
+        existing_tx = db.transactions.find_one({"_id": ObjectId(transaction_id), "tenant_id": tenant_id})
         if not existing_tx:
             print(f"Transaction not found: {transaction_id}")  # Логируем если не найдена
             raise HTTPException(status_code=404, detail="Transaction not found")
@@ -834,26 +861,28 @@ def delete_transaction(transaction_id: str):
         # Сохраняем снимок состояния ПЕРЕД удалением
         history_manager.save_snapshot(
             operation_type="delete_transaction",
-            description=f"Deleting transaction {transaction_id}"
+            description=f"Deleting transaction {transaction_id}",
+            tenant_id=tenant_id
         )
         
         result = db.transactions.delete_one({"_id": ObjectId(transaction_id)})
         if result.deleted_count > 0:
             # Удаляем из Google Sheets
-            sheets_manager.delete_transaction(transaction_id)
+            sheets_manager.delete_transaction(transaction_id, tenant_id)
             
             # Обновляем сводный лист
             try:
-                cash_items = list(db.cash.find({}, {"_id": 0}))
+                cash_items = list(db.cash.find({"tenant_id": tenant_id}, {"_id": 0}))
                 cash_status = {item["asset"]: item["balance"] for item in cash_items}
                 
                 pipeline = [
+                    {"$match": {"tenant_id": tenant_id}},
                     {"$group": {"_id": "$profit_currency", "total_realized_profit": {"$sum": "$realized_profit"}}}
                 ]
                 profit_results = list(db.transactions.aggregate(pipeline))
                 realized_profits = {r["_id"]: r["total_realized_profit"] for r in profit_results if r["_id"]}
                 
-                sheets_manager.update_summary_sheet(cash_status, realized_profits)
+                sheets_manager.update_cash_and_profits(cash_status, realized_profits, tenant_id)
             except Exception as e:
                 print(f"Failed to update summary sheet: {e}")
             
