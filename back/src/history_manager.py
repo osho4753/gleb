@@ -12,14 +12,15 @@ class HistoryManager:
     MAX_SNAPSHOTS = 50  # Максимальное количество хранимых снимков
     
     @staticmethod
-    def save_snapshot(operation_type: str, description: str = "", tenant_id: str = None) -> str:
+    def save_snapshot(operation_type: str, description: str = "", tenant_id: str = None, cash_desk_id: str = None) -> str:
         """
-        Сохраняет снимок текущего состояния перед операцией (только для конкретного tenant)
+        Сохраняет снимок текущего состояния перед операцией (для конкретного tenant и кассы)
         
         Args:
             operation_type: Тип операции (create_transaction, delete_transaction, deposit, withdrawal, etc.)
             description: Описание операции для удобства
             tenant_id: ID tenant'а для изоляции снимков
+            cash_desk_id: ID кассы для изоляции по кассе
             
         Returns:
             ID созданного снимка
@@ -28,35 +29,42 @@ class HistoryManager:
             if not tenant_id:
                 raise ValueError("tenant_id is required for snapshot creation")
             
-            # Собираем текущее состояние всех критичных коллекций (только для конкретного tenant)
+            # Собираем текущее состояние всех критичных коллекций (для конкретного tenant и кассы)
             tenant_filter = {"tenant_id": tenant_id}
+            cash_desk_filter = {"tenant_id": tenant_id}
+            
+            # Если указан cash_desk_id, фильтруем по нему
+            if cash_desk_id:
+                cash_desk_filter["cash_desk_id"] = cash_desk_id
             
             snapshot = {
                 "timestamp": datetime.utcnow(),
                 "operation_type": operation_type,
                 "description": description,
                 "tenant_id": tenant_id,  # Привязываем снимок к tenant
+                "cash_desk_id": cash_desk_id,  # Привязываем снимок к кассе
                 
-                # Сохраняем транзакции только текущего tenant
-                "transactions": list(db.transactions.find(tenant_filter)),
+                # Сохраняем транзакции только для указанной кассы (или всех касс tenant'а если cash_desk_id не указан)
+                "transactions": list(db.transactions.find(cash_desk_filter)),
                 
-                # Сохраняем состояние кассы только текущего tenant
-                "cash": list(db.cash.find(tenant_filter)),
+                # Сохраняем состояние кассы только для указанной кассы
+                "cash": list(db.cash.find(cash_desk_filter)),
                 
-                # Сохраняем фиатные лоты (для FIFO) только текущего tenant
-                "fiat_lots": list(db.fiat_lots.find(tenant_filter)),
+                # Сохраняем фиатные лоты (для FIFO) только для указанной кассы
+                "fiat_lots": list(db.fiat_lots.find(cash_desk_filter)),
                 
-                # Сохраняем PnL матчинги только текущего tenant
-                "pnl_matches": list(db.pnl_matches.find(tenant_filter))
+                # Сохраняем PnL матчинги только для указанной кассы
+                "pnl_matches": list(db.pnl_matches.find(cash_desk_filter))
             }
             
             # Вставляем снимок
             result = db.history_snapshots.insert_one(snapshot)
             
-            # Ограничиваем количество снимков для конкретного tenant
-            HistoryManager._cleanup_old_snapshots(tenant_id)
+            # Ограничиваем количество снимков для конкретного tenant и кассы
+            HistoryManager._cleanup_old_snapshots(tenant_id, cash_desk_id)
             
-            print(f"✅ Snapshot saved for tenant {tenant_id}: {operation_type} - {description}")
+            cash_desc = f" (desk: {cash_desk_id})" if cash_desk_id else " (all desks)"
+            print(f"✅ Snapshot saved for tenant {tenant_id}{cash_desc}: {operation_type} - {description}")
             return str(result.inserted_id)
             
         except Exception as e:
@@ -64,17 +72,20 @@ class HistoryManager:
             return None
     
     @staticmethod
-    def _cleanup_old_snapshots(tenant_id: str):
-        """Удаляет старые снимки для конкретного tenant, оставляя только последние MAX_SNAPSHOTS"""
+    def _cleanup_old_snapshots(tenant_id: str, cash_desk_id: str = None):
+        """Удаляет старые снимки для конкретного tenant и кассы, оставляя только последние MAX_SNAPSHOTS"""
         try:
-            # Считаем количество снимков для конкретного tenant
-            tenant_filter = {"tenant_id": tenant_id}
-            count = db.history_snapshots.count_documents(tenant_filter)
+            # Считаем количество снимков для конкретного tenant и кассы
+            filter_criteria = {"tenant_id": tenant_id}
+            if cash_desk_id:
+                filter_criteria["cash_desk_id"] = cash_desk_id
+            
+            count = db.history_snapshots.count_documents(filter_criteria)
             
             if count > HistoryManager.MAX_SNAPSHOTS:
-                # Получаем снимки для tenant отсортированные по времени (старые первыми)
+                # Получаем снимки отсортированные по времени (старые первыми)
                 old_snapshots = list(
-                    db.history_snapshots.find(tenant_filter)
+                    db.history_snapshots.find(filter_criteria)
                     .sort("timestamp", 1)
                     .limit(count - HistoryManager.MAX_SNAPSHOTS)
                 )
@@ -83,18 +94,20 @@ class HistoryManager:
                 for snapshot in old_snapshots:
                     db.history_snapshots.delete_one({"_id": snapshot["_id"]})
                 
-                print(f"🧹 Cleaned up {len(old_snapshots)} old snapshots for tenant {tenant_id}")
+                cash_desc = f" (desk: {cash_desk_id})" if cash_desk_id else " (all desks)"
+                print(f"🧹 Cleaned up {len(old_snapshots)} old snapshots for tenant {tenant_id}{cash_desc}")
                 
         except Exception as e:
             print(f"❌ Failed to cleanup snapshots: {e}")
     
     @staticmethod
-    def get_last_snapshot(tenant_id: str = None) -> Optional[Dict[str, Any]]:
+    def get_last_snapshot(tenant_id: str = None, cash_desk_id: str = None) -> Optional[Dict[str, Any]]:
         """
-        Получает последний сохраненный снимок для конкретного tenant
+        Получает последний сохраненный снимок для конкретного tenant и кассы
         
         Args:
             tenant_id: ID tenant'а
+            cash_desk_id: ID кассы (опционально)
             
         Returns:
             Снимок состояния или None если снимков нет
@@ -102,9 +115,13 @@ class HistoryManager:
         try:
             if not tenant_id:
                 raise ValueError("tenant_id is required")
+            
+            filter_criteria = {"tenant_id": tenant_id}
+            if cash_desk_id:
+                filter_criteria["cash_desk_id"] = cash_desk_id
                 
             snapshot = db.history_snapshots.find_one(
-                {"tenant_id": tenant_id},
+                filter_criteria,
                 sort=[("timestamp", -1)]  # Сортировка по убыванию времени
             )
             return snapshot
@@ -114,13 +131,14 @@ class HistoryManager:
             return None
     
     @staticmethod
-    def restore_snapshot(snapshot_id: Optional[str] = None, tenant_id: str = None) -> bool:
+    def restore_snapshot(snapshot_id: Optional[str] = None, tenant_id: str = None, cash_desk_id: str = None) -> bool:
         """
-        Восстанавливает состояние из снимка (только для конкретного tenant)
+        Восстанавливает состояние из снимка (для конкретного tenant и кассы)
         
         Args:
             snapshot_id: ID снимка для восстановления. Если None, берется последний снимок
             tenant_id: ID tenant'а для изоляции восстановления
+            cash_desk_id: ID кассы для изоляции восстановления
             
         Returns:
             True если восстановление прошло успешно, False иначе
@@ -129,102 +147,80 @@ class HistoryManager:
             if not tenant_id:
                 raise ValueError("tenant_id is required for snapshot restoration")
             
-            # Получаем снимок для конкретного tenant
+            # Получаем снимок для конкретного tenant и кассы
             if snapshot_id:
                 from bson import ObjectId
-                snapshot = db.history_snapshots.find_one({
+                filter_criteria = {
                     "_id": ObjectId(snapshot_id), 
                     "tenant_id": tenant_id  # Проверяем принадлежность к tenant
-                })
+                }
+                if cash_desk_id:
+                    filter_criteria["cash_desk_id"] = cash_desk_id
+                snapshot = db.history_snapshots.find_one(filter_criteria)
             else:
-                snapshot = HistoryManager.get_last_snapshot(tenant_id)
+                snapshot = HistoryManager.get_last_snapshot(tenant_id, cash_desk_id)
             
             if not snapshot:
-                print(f"❌ No snapshot found to restore for tenant {tenant_id}")
+                cash_desc = f" (desk: {cash_desk_id})" if cash_desk_id else " (all desks)"
+                print(f"❌ No snapshot found to restore for tenant {tenant_id}{cash_desc}")
                 return False
             
-            print(f"🔄 Restoring snapshot from {snapshot['timestamp']} for tenant {tenant_id}: {snapshot['operation_type']}")
+            cash_desc = f" (desk: {cash_desk_id})" if cash_desk_id else " (all desks)"
+            print(f"🔄 Restoring snapshot from {snapshot['timestamp']} for tenant {tenant_id}{cash_desc}: {snapshot['operation_type']}")
             
-            # Фильтр для удаления и восстановления данных только текущего tenant
-            tenant_filter = {"tenant_id": tenant_id}
+            # Фильтр для удаления и восстановления данных
+            restore_filter = {"tenant_id": tenant_id}
+            if cash_desk_id:
+                restore_filter["cash_desk_id"] = cash_desk_id
             
-            # Восстанавливаем транзакции только для текущего tenant
-            db.transactions.delete_many(tenant_filter)
+            # Восстанавливаем транзакции
+            db.transactions.delete_many(restore_filter)
             if snapshot.get("transactions"):
                 transactions = snapshot["transactions"]
-                # Убеждаемся, что все записи имеют правильный tenant_id
                 for tx in transactions:
                     tx["tenant_id"] = tenant_id
-                if transactions:  # Проверяем, что есть что вставлять
+                    if cash_desk_id:
+                        tx["cash_desk_id"] = cash_desk_id
+                if transactions:
                     db.transactions.insert_many(transactions)
             
-            # Восстанавливаем кассу только для текущего tenant
-            db.cash.delete_many(tenant_filter)
+            # Восстанавливаем кассу
+            db.cash.delete_many(restore_filter)
             if snapshot.get("cash"):
                 cash_items = snapshot["cash"]
                 for item in cash_items:
                     item["tenant_id"] = tenant_id
+                    if cash_desk_id:
+                        item["cash_desk_id"] = cash_desk_id
                 if cash_items:
                     db.cash.insert_many(cash_items)
             
-            # Восстанавливаем фиатные лоты только для текущего tenant
-            db.fiat_lots.delete_many(tenant_filter)
+            # Восстанавливаем фиатные лоты
+            db.fiat_lots.delete_many(restore_filter)
             if snapshot.get("fiat_lots"):
                 lots = snapshot["fiat_lots"]
                 for lot in lots:
                     lot["tenant_id"] = tenant_id
+                    if cash_desk_id:
+                        lot["cash_desk_id"] = cash_desk_id
                 if lots:
                     db.fiat_lots.insert_many(lots)
             
-            # Восстанавливаем PnL матчи только для текущего tenant
-            db.pnl_matches.delete_many(tenant_filter)
+            # Восстанавливаем PnL матчи
+            db.pnl_matches.delete_many(restore_filter)
             if snapshot.get("pnl_matches"):
                 matches = snapshot["pnl_matches"]
                 for match in matches:
                     match["tenant_id"] = tenant_id
+                    if cash_desk_id:
+                        match["cash_desk_id"] = cash_desk_id
                 if matches:
                     db.pnl_matches.insert_many(matches)
             
             # Удаляем восстановленный снимок (он уже не нужен)
             db.history_snapshots.delete_one({"_id": snapshot["_id"]})
             
-            # Синхронизируем восстановленные данные с Google Sheets (если включено)
-            try:
-                from .google_sheets import sheets_manager
-                
-                if sheets_manager.is_enabled_for_tenant(tenant_id):
-                    # Получаем восстановленные данные для синхронизации
-                    transactions = list(db.transactions.find({"tenant_id": tenant_id}))
-                    
-                    # Получаем данные кассы
-                    cash_items = list(db.cash.find({"tenant_id": tenant_id}, {"_id": 0}))
-                    cash_status = {item["asset"]: item["balance"] for item in cash_items}
-                    
-                    # Получаем данные прибыли
-                    pipeline = [
-                        {"$match": {"tenant_id": tenant_id}},
-                        {"$group": {"_id": "$profit_currency", "total_realized_profit": {"$sum": "$realized_profit"}}}
-                    ]
-                    profit_results = list(db.transactions.aggregate(pipeline))
-                    realized_profits = {r["_id"]: r["total_realized_profit"] for r in profit_results if r["_id"]}
-                    
-                    # Получаем настройки Google Sheets для синхронизации
-                    settings = sheets_manager.get_tenant_settings(tenant_id)
-                    if settings and settings.get("spreadsheet_id"):
-                        sheets_manager.sync_all_data(
-                            settings["spreadsheet_id"],
-                            transactions,
-                            cash_status,
-                            realized_profits,
-                            tenant_id
-                        )
-                        print(f"✅ Google Sheets synchronized after undo for tenant {tenant_id}")
-                    
-            except Exception as sheets_error:
-                print(f"⚠️ Failed to sync Google Sheets after undo: {sheets_error}")
-                # Не прерываем выполнение, так как основное восстановление прошло успешно
-            
-            print(f"✅ Snapshot restored successfully for tenant {tenant_id}")
+            print(f"✅ Snapshot restored successfully for tenant {tenant_id}{cash_desc}")
             return True
             
         except Exception as e:
@@ -234,13 +230,14 @@ class HistoryManager:
             return False
     
     @staticmethod
-    def get_history(limit: int = 10, tenant_id: str = None) -> list:
+    def get_history(limit: int = 10, tenant_id: str = None, cash_desk_id: str = None) -> list:
         """
-        Получает список последних снимков для отображения истории (для конкретного tenant)
+        Получает список последних снимков для отображения истории (для конкретного tenant и кассы)
         
         Args:
             limit: Максимальное количество снимков для возврата
             tenant_id: ID tenant'а
+            cash_desk_id: ID кассы (опционально)
             
         Returns:
             Список снимков с метаинформацией
@@ -248,16 +245,21 @@ class HistoryManager:
         try:
             if not tenant_id:
                 raise ValueError("tenant_id is required")
+            
+            filter_criteria = {"tenant_id": tenant_id}
+            if cash_desk_id:
+                filter_criteria["cash_desk_id"] = cash_desk_id
                 
             snapshots = list(
                 db.history_snapshots.find(
-                    {"tenant_id": tenant_id},
+                    filter_criteria,
                     {
                         "_id": 1,
                         "timestamp": 1,
                         "operation_type": 1,
                         "description": 1,
-                        "tenant_id": 1
+                        "tenant_id": 1,
+                        "cash_desk_id": 1
                     }
                 )
                 .sort("timestamp", -1)
@@ -275,17 +277,24 @@ class HistoryManager:
             return []
     
     @staticmethod
-    def clear_history(tenant_id: str = None):
+    def clear_history(tenant_id: str = None, cash_desk_id: str = None):
         """Очищает историю снимков (для reset-all-data)
         
         Args:
             tenant_id: ID tenant'а. Если не указан, очищает всю историю
+            cash_desk_id: ID кассы. Если не указан, очищает историю всех касс tenant'а
         """
         try:
             if tenant_id:
-                # Очищаем историю только для конкретного tenant'а
-                result = db.history_snapshots.delete_many({"tenant_id": tenant_id})
-                print(f"🧹 Cleared {result.deleted_count} history snapshots for tenant {tenant_id}")
+                filter_criteria = {"tenant_id": tenant_id}
+                if cash_desk_id:
+                    filter_criteria["cash_desk_id"] = cash_desk_id
+                
+                # Очищаем историю для конкретного tenant'а (и кассы если указана)
+                result = db.history_snapshots.delete_many(filter_criteria)
+                
+                cash_desc = f" (desk: {cash_desk_id})" if cash_desk_id else " (all desks)"
+                print(f"🧹 Cleared {result.deleted_count} history snapshots for tenant {tenant_id}{cash_desc}")
             else:
                 # Очищаем всю историю (для полного сброса системы)
                 result = db.history_snapshots.delete_many({})

@@ -11,7 +11,7 @@ import csv
 from io import StringIO
 from ..db import db
 from ..models import Transaction, TransactionUpdate
-from ..constants import FIAT_ASSETS, SPECIAL_FIAT
+from ..constants import FIAT_ASSETS, SPECIAL_FIAT, SPECIAL_FIAT_FOR_USDT
 from ..google_sheets import sheets_manager
 from ..history_manager import history_manager
 from ..auth import get_current_tenant
@@ -37,7 +37,8 @@ def create_transaction(
     history_manager.save_snapshot(
         operation_type="create_transaction",
         description=f"Creating {tx.type}: {tx.from_asset} → {tx.to_asset}",
-        tenant_id=tenant_id
+        tenant_id=tenant_id,
+        cash_desk_id=cash_desk_id
     )
     
     # --- Проверки ---
@@ -268,16 +269,21 @@ def create_transaction(
             take     = lot_rem if lot_rem <= need else need       # сколько забираем из этого лота
             matched_usdt = take / sell_rate_eff                    # сколько USDT закрываем этим куском
 
-            # кусочный PnL в валюте лота: (курс лота − курс продажи_эфф) × закрытый USDT
+            # Этап 1: Считаем прибыль в ФИАТЕ (pnl_piece_fiat)
             pnl_piece_fiat = (lot_rate - sell_rate_eff) * matched_usdt
-            # для перевода прибыли в USDT используем эффективный курс продажи
-            if fiat_currency == "EUR":
-                pnl_piece_usdt = pnl_piece_fiat * sell_rate_eff  # EUR: умножаем
-            else:
-                pnl_piece_usdt = pnl_piece_fiat / sell_rate_eff  # CZK/USD: делим
-
             pnl_fiat += pnl_piece_fiat
+
+            # --- УНИВЕРСАЛЬНЫЙ КОД (ИСПРАВЛЕНИЕ) ---
+            # Конвертируем прибыль в USDT для лога
+            # Формула: USDT = FIAT / (FIAT / USDT)
+            if sell_rate_eff == 0:
+                pnl_piece_usdt = D(0)
+            else:
+                # Эта формула теперь едина для ВСЕХ валют (CZK, EUR, USD)
+                pnl_piece_usdt = pnl_piece_fiat / sell_rate_eff
+            
             pnl_usdt += pnl_piece_usdt
+            # --- Конец исправления ---
 
             # уменьшаем остаток лота
             new_rem = (lot_rem - take).quantize(D("0.0000001"))
@@ -321,33 +327,32 @@ def create_transaction(
 
             lot_rem  = D(lot["remaining"])
             
-            # Для fiat_to_fiat лотов используем cost_usdt_of_fiat_in для PnL расчета
-            cost_usdt_of_fiat_in = D(str(lot["meta"].get("cost_usdt_of_fiat_in", 0)))
-            
-            # Курс лота = фиат / cost_usdt (сколько фиата на 1 USDT)
-            if cost_usdt_of_fiat_in > 0:
-                lot_rate = lot_rem / cost_usdt_of_fiat_in
-            else:
-                lot_rate = D(lot["rate"])  # fallback to stored rate
+            # ✅ ПРАВИЛЬНЫЙ PnL расчет для fiat_to_fiat лотов:
+            # Берем себестоимость ВСЕГО лота из метаданных
+            cost_usdt_total_lot = D(str(lot["meta"].get("cost_usdt_of_fiat_in", 0)))
             
             take = lot_rem if lot_rem <= need else need
             matched_usdt = take / sell_rate_eff  # сколько USDT получаем от клиента
 
-            # ✅ ПРАВИЛЬНЫЙ PnL расчет для fiat_to_fiat лотов:
             # Находим себестоимость проданной части в USDT
-            portion = take / lot_rem  # какая доля лота продается
-            cost_usdt_portion = cost_usdt_of_fiat_in * portion  # себестоимость в USDT
+            # Полный лот был создан с размером X фиата и себестоимостью cost_usdt_total_lot
+            # Сейчас остаток lot_rem, значит изначально лот был (lot_rem + уже_потрачено)
+            # Но в метаданных cost_usdt_of_fiat_in относится к ОСТАТКУ лота!
+            portion = take / lot_rem  # какая доля ОСТАТКА продается
+            cost_usdt_portion = cost_usdt_total_lot * portion  # себестоимость в USDT
             
-            # PnL = выручка в USDT - себестоимость в USDT
+            # Этап 2: Считаем прибыль в USDT (pnl_piece_usdt)
             pnl_piece_usdt = matched_usdt - cost_usdt_portion
-            # Конвертируем PnL в фиат для отображения
-            if fiat_currency == "EUR":
-                pnl_piece_fiat = pnl_piece_usdt * sell_rate_eff  # EUR: умножаем
-            else:
-                pnl_piece_fiat = pnl_piece_usdt / sell_rate_eff  # CZK/USD: делим
-
-            pnl_fiat += pnl_piece_fiat
             pnl_usdt += pnl_piece_usdt
+
+            # --- УНИВЕРСАЛЬНЫЙ КОД (ИСПРАВЛЕНИЕ) ---
+            # Конвертируем прибыль в ФИАТ для итоговой суммы
+            # Формула: FIAT = USDT * (FIAT / USDT)
+            # Эта формула теперь едина для ВСЕХ валют (CZK, EUR, USD)
+            pnl_piece_fiat = pnl_piece_usdt * sell_rate_eff
+            
+            pnl_fiat += pnl_piece_fiat
+            # --- Конец исправления ---
 
             # уменьшаем остаток лота
             new_rem = (lot_rem - take).quantize(D("0.0000001"))
@@ -363,11 +368,11 @@ def create_transaction(
                 "stage": 2,  # этап 2 - обменные пункты
                 "fiat_used": float(take),
                 "matched_usdt": float(matched_usdt),
-                "lot_rate": float(lot_rate),
+                "lot_rate": float(take / cost_usdt_portion) if cost_usdt_portion > 0 else 0,  # эффективный курс лота
                 "sell_rate_eff": float(sell_rate_eff),
                 "pnl_fiat": float(pnl_piece_fiat),
                 "pnl_usdt": float(pnl_piece_usdt),
-                "cost_usdt_of_fiat_in": float(cost_usdt_of_fiat_in),
+                "cost_usdt_of_fiat_in": float(cost_usdt_total_lot),
                 "created_at": datetime.utcnow()
             })
 
@@ -828,7 +833,8 @@ def update_transaction(transaction_id: str, update_data: TransactionUpdate, tena
         history_manager.save_snapshot(
             operation_type="update_transaction",
             description=f"Updating transaction {transaction_id}",
-            tenant_id=tenant_id
+            tenant_id=tenant_id,
+            cash_desk_id=existing_tx.get("cash_desk_id")
         )
         
         # Подготавливаем данные для обновления
@@ -939,7 +945,8 @@ def delete_transaction(transaction_id: str, cash_desk_id: str, tenant_id: str = 
         history_manager.save_snapshot(
             operation_type="delete_transaction",
             description=f"Deleting transaction {transaction_id}",
-            tenant_id=tenant_id
+            tenant_id=tenant_id,
+            cash_desk_id=cash_desk_id
         )
         
         result = db.transactions.delete_one({"_id": ObjectId(transaction_id)})
@@ -1159,10 +1166,12 @@ def calculate_transaction_preview(
                 take = min(lot_rem, need)
                 matched_usdt = take / sell_rate_eff
 
+                # Этап 1: Считаем прибыль в ФИАТЕ (pnl_piece_fiat)
                 pnl_piece_fiat = (lot_rate - sell_rate_eff) * matched_usdt
-                pnl_piece_usdt = D(0)
-                if fiat_currency == "EUR":
-                    pnl_piece_usdt = pnl_piece_fiat * sell_rate_eff
+                
+                # Универсальная конвертация в USDT: USDT = FIAT / (FIAT / USDT)
+                if sell_rate_eff == 0:
+                    pnl_piece_usdt = D(0)
                 else:
                     pnl_piece_usdt = pnl_piece_fiat / sell_rate_eff
 
@@ -1199,24 +1208,26 @@ def calculate_transaction_preview(
 
                 cost_usdt_of_fiat_in = D(str(lot["meta"].get("cost_usdt_of_fiat_in", 0)))
                 
-                lot_rate = D(lot["rate"]) # Fallback rate
-                if cost_usdt_of_fiat_in > 0 and lot_rem > 0:
+                # ИСПРАВЛЕНИЕ: Используем ту же логику, что и в основной функции
+                # Курс лота = фиат / cost_usdt (сколько фиата на 1 USDT)
+                if cost_usdt_of_fiat_in > 0:
                     lot_rate = lot_rem / cost_usdt_of_fiat_in
+                else:
+                    lot_rate = D(lot["rate"])  # fallback to stored rate
                 
                 take = min(lot_rem, need)
                 matched_usdt = take / sell_rate_eff
                 
-                cost_usdt_portion = D(0)
-                if lot_rem > 0:
-                    portion = take / lot_rem
-                    cost_usdt_portion = cost_usdt_of_fiat_in * portion
+                # ✅ ПРАВИЛЬНЫЙ PnL расчет для fiat_to_fiat лотов:
+                # Находим себестоимость проданной части в USDT
+                portion = take / lot_rem  # какая доля лота продается
+                cost_usdt_portion = cost_usdt_of_fiat_in * portion  # себестоимость в USDT
                 
+                # Этап 2: Считаем прибыль в USDT (pnl_piece_usdt)
                 pnl_piece_usdt = matched_usdt - cost_usdt_portion
-                pnl_piece_fiat = D(0)
-                if fiat_currency == "EUR":
-                    pnl_piece_fiat = pnl_piece_usdt * sell_rate_eff
-                else:
-                    pnl_piece_fiat = pnl_piece_usdt / sell_rate_eff
+                
+                # Универсальная конвертация в ФИАТ: FIAT = USDT * (FIAT / USDT)
+                pnl_piece_fiat = pnl_piece_usdt * sell_rate_eff
 
                 pnl_fiat += pnl_piece_fiat
                 pnl_usdt += pnl_piece_usdt

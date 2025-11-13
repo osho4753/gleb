@@ -19,6 +19,10 @@ export function App() {
   const [isGoogleSheetsModalOpen, setIsGoogleSheetsModalOpen] = useState(false)
   const [tenantInfo, setTenantInfo] = useState<TenantInfo | null>(null)
   const { isAuthenticated, login, logout, getTenantInfo } = useAuth()
+  const { cashDesks } = useCashDesk()
+
+  // Проверяем, есть ли кассы
+  const hasCashDesks = cashDesks && cashDesks.length > 0
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -33,6 +37,17 @@ export function App() {
       setTenantInfo(null)
     }
   }, [isAuthenticated])
+
+  // Если нет касс и пытаемся открыть вкладку, которая требует касс,
+  // переключаемся на dashboard или cash-desks
+  useEffect(() => {
+    if (
+      !hasCashDesks &&
+      ['cash', 'transactions', 'history', 'lots', 'pnl'].includes(activeTab)
+    ) {
+      setActiveTab('dashboard')
+    }
+  }, [hasCashDesks, activeTab])
 
   // Если не аутентифицирован, показываем экран входа
   if (!isAuthenticated) {
@@ -49,7 +64,7 @@ export function App() {
               <h1 className="text-2xl sm:text-3xl font-bold">
                 Панель Обменника
               </h1>
-              <CashDeskSelector />
+              {hasCashDesks && <CashDeskSelector />}
             </div>
             {tenantInfo && (
               <p className="text-sm text-gray-600 mt-1">
@@ -60,10 +75,12 @@ export function App() {
             )}
           </div>
           <div className="flex items-center gap-2">
-            {/* Google Sheets Icon */}
-            <GoogleSheetsIcon
-              onOpenModal={() => setIsGoogleSheetsModalOpen(true)}
-            />
+            {/* Google Sheets Icon - показываем только если есть кассы */}
+            {hasCashDesks && (
+              <GoogleSheetsIcon
+                onOpenModal={() => setIsGoogleSheetsModalOpen(true)}
+              />
+            )}
 
             {/* Logout Button */}
             <button
@@ -109,74 +126,85 @@ export function App() {
             >
               Кассы
             </button>
-            <button
-              onClick={() => setActiveTab('cash')}
-              className={`px-3 sm:px-4 py-2 font-medium whitespace-nowrap text-sm sm:text-base ${
-                activeTab === 'cash'
-                  ? 'border-b-2 border-blue-500 text-blue-600'
-                  : 'text-gray-600 hover:text-gray-900'
-              }`}
-            >
-              Управление Кассой
-            </button>
-            <button
-              onClick={() => setActiveTab('transactions')}
-              className={`px-3 sm:px-4 py-2 font-medium whitespace-nowrap text-sm sm:text-base ${
-                activeTab === 'transactions'
-                  ? 'border-b-2 border-blue-500 text-blue-600'
-                  : 'text-gray-600 hover:text-gray-900'
-              }`}
-            >
-              Транзакции
-            </button>
 
-            <button
-              onClick={() => setActiveTab('history')}
-              className={`px-3 sm:px-4 py-2 font-medium whitespace-nowrap text-sm sm:text-base ${
-                activeTab === 'history'
-                  ? 'border-b-2 border-blue-500 text-blue-600'
-                  : 'text-gray-600 hover:text-gray-900'
-              }`}
-            >
-              История
-            </button>
+            {/* Показываем остальные вкладки только если есть кассы */}
+            {hasCashDesks && (
+              <>
+                <button
+                  onClick={() => setActiveTab('cash')}
+                  className={`px-3 sm:px-4 py-2 font-medium whitespace-nowrap text-sm sm:text-base ${
+                    activeTab === 'cash'
+                      ? 'border-b-2 border-blue-500 text-blue-600'
+                      : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  Управление Кассой
+                </button>
+                <button
+                  onClick={() => setActiveTab('transactions')}
+                  className={`px-3 sm:px-4 py-2 font-medium whitespace-nowrap text-sm sm:text-base ${
+                    activeTab === 'transactions'
+                      ? 'border-b-2 border-blue-500 text-blue-600'
+                      : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  Транзакции
+                </button>
 
-            <button
-              onClick={() => setActiveTab('lots')}
-              className={`px-3 sm:px-4 py-2 font-medium whitespace-nowrap text-sm sm:text-base ${
-                activeTab === 'lots'
-                  ? 'border-b-2 border-blue-500 text-blue-600'
-                  : 'text-gray-600 hover:text-gray-900'
-              }`}
-            >
-              Фиат Лоты
-            </button>
+                <button
+                  onClick={() => setActiveTab('history')}
+                  className={`px-3 sm:px-4 py-2 font-medium whitespace-nowrap text-sm sm:text-base ${
+                    activeTab === 'history'
+                      ? 'border-b-2 border-blue-500 text-blue-600'
+                      : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  История
+                </button>
 
-            <button
-              onClick={() => setActiveTab('pnl')}
-              className={`px-3 sm:px-4 py-2 font-medium whitespace-nowrap text-sm sm:text-base ${
-                activeTab === 'pnl'
-                  ? 'border-b-2 border-blue-500 text-blue-600'
-                  : 'text-gray-600 hover:text-gray-900'
-              }`}
-            >
-              PnL Матчи
-            </button>
+                <button
+                  onClick={() => setActiveTab('lots')}
+                  className={`px-3 sm:px-4 py-2 font-medium whitespace-nowrap text-sm sm:text-base ${
+                    activeTab === 'lots'
+                      ? 'border-b-2 border-blue-500 text-blue-600'
+                      : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  Фиат Лоты
+                </button>
+
+                <button
+                  onClick={() => setActiveTab('pnl')}
+                  className={`px-3 sm:px-4 py-2 font-medium whitespace-nowrap text-sm sm:text-base ${
+                    activeTab === 'pnl'
+                      ? 'border-b-2 border-blue-500 text-blue-600'
+                      : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  PnL Матчи
+                </button>
+              </>
+            )}
           </div>
         </div>
         <div className="bg-white rounded-lg shadow p-3 sm:p-6">
           {activeTab === 'dashboard' && <Dashboard />}
           {activeTab === 'cash-desks' && <CashDesksManager />}
-          {activeTab === 'cash' && <CashManager />}
-          {activeTab === 'transactions' && (
-            <TransactionsManager
-              onNavigateToHistory={() => setActiveTab('history')}
-            />
-          )}
 
-          {activeTab === 'history' && <TransactionsHistory />}
-          {activeTab === 'lots' && <FiatLotsViewer />}
-          {activeTab === 'pnl' && <PnLMatches />}
+          {/* Показываем компоненты только если есть кассы */}
+          {hasCashDesks && (
+            <>
+              {activeTab === 'cash' && <CashManager />}
+              {activeTab === 'transactions' && (
+                <TransactionsManager
+                  onNavigateToHistory={() => setActiveTab('history')}
+                />
+              )}
+              {activeTab === 'history' && <TransactionsHistory />}
+              {activeTab === 'lots' && <FiatLotsViewer />}
+              {activeTab === 'pnl' && <PnLMatches />}
+            </>
+          )}
         </div>
       </div>
 

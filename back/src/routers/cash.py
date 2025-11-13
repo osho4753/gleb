@@ -151,9 +151,10 @@ def deposit_to_cash(
     # Обновляем баланс в кассе
     # Сохраняем снимок состояния ПЕРЕД пополнением
     history_manager.save_snapshot(
-        tenant_id=tenant_id,
         operation_type="deposit",
-        description=f"Deposit {deposit.amount} {deposit.asset}"
+        description=f"Deposit {deposit.amount} {deposit.asset}",
+        tenant_id=tenant_id,
+        cash_desk_id=cash_desk_id
     )
     
     db.cash.update_one(
@@ -236,9 +237,10 @@ def withdraw_from_cash(withdrawal: CashWithdrawal, cash_desk_id: str, tenant_id:
     
     # Сохраняем снимок состояния ПЕРЕД выводом
     history_manager.save_snapshot(
-        tenant_id=tenant_id,
         operation_type="withdrawal",
-        description=f"Withdrawal {withdrawal.amount} {withdrawal.asset}"
+        description=f"Withdrawal {withdrawal.amount} {withdrawal.asset}",
+        tenant_id=tenant_id,
+        cash_desk_id=cash_desk_id
     )
     
     # Обновляем баланс в кассе

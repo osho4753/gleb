@@ -140,24 +140,26 @@ def reset_all_data(tenant_id: str = Depends(get_current_tenant)):
 
 
 @router.post("/undo")
-def undo_last_operation(tenant_id: str = Depends(get_current_tenant)):
-    """Отменяет последнюю операцию для конкретного tenant, восстанавливая предыдущее состояние"""
+def undo_last_operation(cash_desk_id: str = None, tenant_id: str = Depends(get_current_tenant)):
+    """Отменяет последнюю операцию для конкретного tenant и кассы, восстанавливая предыдущее состояние"""
     try:
-        # Получаем последний снимок для конкретного tenant
-        snapshot = history_manager.get_last_snapshot(tenant_id)
+        # Получаем последний снимок для конкретного tenant и кассы
+        snapshot = history_manager.get_last_snapshot(tenant_id, cash_desk_id)
         
         if not snapshot:
-            raise HTTPException(status_code=404, detail="No operations to undo")
+            cash_desc = f" (desk: {cash_desk_id})" if cash_desk_id else " (all desks)"
+            raise HTTPException(status_code=404, detail=f"No operations to undo for tenant {tenant_id}{cash_desc}")
         
-        # Восстанавливаем состояние для конкретного tenant
+        # Восстанавливаем состояние для конкретного tenant и кассы
         # (Google Sheets автоматически синхронизируется внутри restore_snapshot)
-        success = history_manager.restore_snapshot(tenant_id=tenant_id)
+        success = history_manager.restore_snapshot(tenant_id=tenant_id, cash_desk_id=cash_desk_id)
         
         if not success:
             raise HTTPException(status_code=500, detail="Failed to restore snapshot")
         
+        cash_desc = f" (desk: {cash_desk_id})" if cash_desk_id else " (all desks)"
         return {
-            "message": "Operation undone successfully",
+            "message": f"Operation undone successfully for tenant {tenant_id}{cash_desc}",
             "restored_operation": snapshot.get("operation_type"),
             "restored_description": snapshot.get("description"),
             "restored_timestamp": snapshot.get("timestamp")

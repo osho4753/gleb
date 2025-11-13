@@ -117,7 +117,8 @@ async def delete_cash_desk_enhanced(
     history_manager.save_snapshot(
         operation_type="deactivate_cash_desk",
         description=f"Deactivating cash desk '{existing['name']}' (ID: {cash_desk_id})",
-        tenant_id=current_tenant
+        tenant_id=current_tenant,
+        cash_desk_id=cash_desk_id
     )
     
     # Проверяем использование кассы
@@ -236,7 +237,8 @@ async def restore_cash_desk(
     history_manager.save_snapshot(
         operation_type="restore_cash_desk",
         description=f"Restoring cash desk '{existing['name']}' (ID: {cash_desk_id})",
-        tenant_id=current_tenant
+        tenant_id=current_tenant,
+        cash_desk_id=cash_desk_id
     )
     
     # Восстанавливаем кассу

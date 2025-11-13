@@ -61,14 +61,9 @@ class Transaction(BaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 class TransactionUpdate(BaseModel):
-    type: Optional[str] = None
-    from_asset: Optional[str] = None
-    to_asset: Optional[str] = None
-    amount_from: Optional[float] = None
-    rate_used: Optional[float] = None
-    fee_percent: Optional[float] = None
+    # Только note разрешено для редактирования существующих транзакций
+    # Финансовые поля (amount, rate, asset, type) запрещены для изменения
     note: Optional[str] = None
-    created_at: Optional[datetime] = None
 
 class CashDeposit(BaseModel):
     tenant_id: Optional[str] = None  # Tenant isolation field (deprecated, use cash_desk_id)

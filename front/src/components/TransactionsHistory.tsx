@@ -55,36 +55,13 @@ function EditTransactionModal({
   onSave: (id: string, data: any) => void
 }) {
   const [formData, setFormData] = useState({
-    type: 'fiat_to_crypto' as
-      | 'fiat_to_crypto'
-      | 'crypto_to_fiat'
-      | 'fiat_to_fiat'
-      | 'deposit'
-      | 'withdrawal',
-    from_asset: 'USD',
-    to_asset: 'BTC',
-    amount_from: '',
-    rate_used: '',
-    fee_percent: '1',
     note: '',
-    created_at: '',
   })
-
-  const currencies = ['USD', 'USDT', 'EUR', 'CZK']
 
   useEffect(() => {
     if (transaction) {
       setFormData({
-        type: transaction.type || 'fiat_to_crypto',
-        from_asset: transaction.from_asset || 'USD',
-        to_asset: transaction.to_asset || 'BTC',
-        amount_from: transaction.amount_from?.toString() || '',
-        rate_used: transaction.rate_used?.toString() || '',
-        fee_percent: transaction.fee_percent?.toString() || '1',
         note: transaction.note || '',
-        created_at: transaction.created_at
-          ? new Date(transaction.created_at).toISOString().slice(0, 16)
-          : '',
       })
     }
   }, [transaction])
@@ -95,25 +72,15 @@ function EditTransactionModal({
 
     const updateData: any = {}
 
-    // Сравниваем с исходными данными и добавляем только измененные поля
-    if (formData.type !== transaction.type) updateData.type = formData.type
-    if (formData.from_asset !== transaction.from_asset)
-      updateData.from_asset = formData.from_asset
-    if (formData.to_asset !== transaction.to_asset)
-      updateData.to_asset = formData.to_asset
-    if (parseFloat(formData.amount_from) !== transaction.amount_from)
-      updateData.amount_from = parseFloat(formData.amount_from)
-    if (parseFloat(formData.rate_used) !== transaction.rate_used)
-      updateData.rate_used = parseFloat(formData.rate_used)
-    if (parseFloat(formData.fee_percent) !== transaction.fee_percent)
-      updateData.fee_percent = parseFloat(formData.fee_percent)
-    if (formData.note !== (transaction.note || ''))
+    // Только пометка разрешена для редактирования
+    if (formData.note !== (transaction.note || '')) {
       updateData.note = formData.note
-    if (
-      formData.created_at !==
-      new Date(transaction.created_at).toISOString().slice(0, 16)
-    ) {
-      updateData.created_at = new Date(formData.created_at).toISOString()
+    }
+
+    // Если нет изменений, закрываем модал
+    if (Object.keys(updateData).length === 0) {
+      onClose()
+      return
     }
 
     onSave(transaction._id, updateData)
@@ -126,138 +93,84 @@ function EditTransactionModal({
       <div className="bg-white p-6 rounded-lg max-w-lg w-full max-h-[95vh] overflow-y-auto">
         <h3 className="text-lg font-semibold mb-4">Редактировать Транзакцию</h3>
 
+        {/* Информационное сообщение о безопасности */}
+        <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-6">
+          <div className="flex">
+            <div className="ml-3">
+              <p className="text-sm text-yellow-700">
+                <strong>Безопасность:</strong> Редактирование финансовых данных
+                (суммы, курсы, активы, даты) заблокировано для защиты
+                целостности данных. Вы можете изменять только пометки к
+                транзакции.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Отображение данных транзакции только для чтения */}
+        <div className="space-y-4 mb-6 bg-gray-50 p-4 rounded-lg">
+          <h4 className="text-md font-medium text-gray-700 mb-2">
+            Данные транзакции (только для чтения):
+          </h4>
+
+          <div className="grid grid-cols-2 gap-4 text-sm">
+            <div>
+              <span className="font-medium text-gray-600">Тип:</span>
+              <p className="text-gray-800">
+                {transaction.type === 'fiat_to_crypto' && 'Фиат в Крипто'}
+                {transaction.type === 'crypto_to_fiat' && 'Крипто в Фиат'}
+                {transaction.type === 'fiat_to_fiat' && 'Фиат в Фиат'}
+                {transaction.type === 'deposit' && 'Пополнение'}
+                {transaction.type === 'withdrawal' && 'Вычет'}
+              </p>
+            </div>
+
+            <div>
+              <span className="font-medium text-gray-600">Направление:</span>
+              <p className="text-gray-800">
+                {transaction.from_asset} → {transaction.to_asset}
+              </p>
+            </div>
+
+            <div>
+              <span className="font-medium text-gray-600">Сумма:</span>
+              <p className="text-gray-800">
+                {transaction.amount_from} {transaction.from_asset}
+              </p>
+            </div>
+
+            <div>
+              <span className="font-medium text-gray-600">Курс:</span>
+              <p className="text-gray-800">{transaction.rate_used}</p>
+            </div>
+
+            <div>
+              <span className="font-medium text-gray-600">Комиссия:</span>
+              <p className="text-gray-800">{transaction.fee_percent}%</p>
+            </div>
+
+            <div>
+              <span className="font-medium text-gray-600">Дата:</span>
+              <p className="text-gray-800">
+                {new Date(transaction.created_at).toLocaleString('ru-RU')}
+              </p>
+            </div>
+          </div>
+        </div>
+
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-sm font-medium mb-2">
-              Тип Транзакции
+              Пометка (единственное редактируемое поле)
             </label>
-            <select
-              value={formData.type}
-              onChange={(e) =>
-                setFormData({
-                  ...formData,
-                  type: e.target.value as
-                    | 'fiat_to_crypto'
-                    | 'crypto_to_fiat'
-                    | 'fiat_to_fiat'
-                    | 'deposit'
-                    | 'withdrawal',
-                })
-              }
-              className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-            >
-              <option value="fiat_to_crypto">Фиат в Крипто</option>
-              <option value="crypto_to_fiat">Крипто в Фиат</option>
-              <option value="fiat_to_fiat">Фиат в Фиат</option>
-              <option value="deposit">Пополнение</option>
-              <option value="withdrawal">Вычет</option>
-            </select>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium mb-2">
-                Из Актива
-              </label>
-              <select
-                value={formData.from_asset}
-                onChange={(e) =>
-                  setFormData({ ...formData, from_asset: e.target.value })
-                }
-                className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-              >
-                {currencies.map((curr) => (
-                  <option key={curr} value={curr}>
-                    {curr}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-2">В Актив</label>
-              <select
-                value={formData.to_asset}
-                onChange={(e) =>
-                  setFormData({ ...formData, to_asset: e.target.value })
-                }
-                className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-              >
-                {currencies.map((curr) => (
-                  <option key={curr} value={curr}>
-                    {curr}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium mb-2">Сумма От</label>
-              <input
-                type="number"
-                step="0.01"
-                value={formData.amount_from}
-                onChange={(e) =>
-                  setFormData({ ...formData, amount_from: e.target.value })
-                }
-                className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-2">
-                Использованный Курс
-              </label>
-              <input
-                type="number"
-                step="0.00000001"
-                value={formData.rate_used}
-                onChange={(e) =>
-                  setFormData({ ...formData, rate_used: e.target.value })
-                }
-                className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-2">
-              Процент Комиссии
-            </label>
-            <input
-              type="number"
-              step="0.1"
-              value={formData.fee_percent}
-              onChange={(e) =>
-                setFormData({ ...formData, fee_percent: e.target.value })
-              }
-              className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-2">
-              Дата и Время
-            </label>
-            <input
-              type="datetime-local"
-              value={formData.created_at}
-              onChange={(e) =>
-                setFormData({ ...formData, created_at: e.target.value })
-              }
-              className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-2">Пометка</label>
             <textarea
               value={formData.note}
               onChange={(e) =>
                 setFormData({ ...formData, note: e.target.value })
               }
-              rows={2}
+              rows={3}
               className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+              placeholder="Добавьте пометку к транзакции..."
             />
           </div>
 
@@ -273,7 +186,7 @@ function EditTransactionModal({
               type="submit"
               className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 text-sm"
             >
-              Сохранить Изменения
+              Сохранить Пометку
             </button>
           </div>
         </form>
@@ -559,7 +472,12 @@ export function TransactionsHistory() {
   // Функция отмены последней операции
   const handleUndo = async () => {
     try {
-      const res = await authenticatedFetch(`${API_BASE}/undo`, {
+      // Формируем URL с cash_desk_id если он выбран
+      const url = selectedCashDeskId
+        ? `${API_BASE}/undo?cash_desk_id=${selectedCashDeskId}`
+        : `${API_BASE}/undo`
+
+      const res = await authenticatedFetch(url, {
         method: 'POST',
       })
       if (res.ok) {

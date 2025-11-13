@@ -45,8 +45,12 @@ export function Dashboard() {
   >({})
   const [loading, setLoading] = useState(false)
   const { authenticatedFetch } = useAuth()
-  const { selectedCashDeskId, selectedCashDesk, isAggregateView } =
+  const { selectedCashDeskId, selectedCashDesk, isAggregateView, cashDesks } =
     useCashDesk()
+
+  // Проверяем, есть ли кассы
+  const hasCashDesks = cashDesks && cashDesks.length > 0
+
   const fetchData = async () => {
     if (!selectedCashDeskId && !isAggregateView) {
       // Если нет выбранной кассы и не агрегированный режим, очищаем данные
@@ -150,229 +154,261 @@ export function Dashboard() {
   }, [selectedCashDeskId, isAggregateView])
   return (
     <div className="space-y-6 w-full max-w-full px-4 sm:px-6">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div>
-          <h2 className="text-xl sm:text-2xl font-bold">Обзор Системы</h2>
-          {!selectedCashDeskId && !isAggregateView && (
-            <p className="text-yellow-600 text-sm mt-1">
-              ⚠️ Выберите кассу для просмотра данных
-            </p>
-          )}
-          {isAggregateView && (
-            <p className="text-blue-600 text-sm mt-1">
-              📊 Агрегированные данные по всем кассам
-            </p>
-          )}
-          {selectedCashDeskId && !isAggregateView && selectedCashDesk && (
-            <p className="text-green-600 text-sm mt-1">
-              🏪 Касса: {selectedCashDesk.name}
-            </p>
-          )}
-        </div>
-        <div className="flex flex-wrap gap-2 w-full sm:w-auto">
-          <button
-            onClick={fetchData}
-            disabled={loading}
-            className="flex items-center justify-center gap-1.5 px-3 sm:px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50 text-sm sm:text-base flex-1 sm:flex-none min-h-[40px]"
-          >
-            <RefreshCwIcon
-              size={16}
-              className={loading ? 'animate-spin' : ''}
-            />
-            <span>Обновить</span>
-          </button>
-          <button
-            onClick={handleReset}
-            className="flex items-center justify-center gap-1.5 px-3 sm:px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 text-sm sm:text-base flex-1 sm:flex-none min-h-[40px]"
-          >
-            <TrashIcon size={16} />
-            <span className="hidden sm:inline">Сбросить Кассу</span>
-            <span className="sm:hidden">Касса</span>
-          </button>
-          <button
-            onClick={handleResetAllData}
-            className="flex items-center justify-center gap-1.5 px-3 sm:px-4 py-2 bg-red-700 text-white rounded hover:bg-red-800 text-sm sm:text-base flex-1 sm:flex-none min-h-[40px]"
-          >
-            <TrashIcon size={16} />
-            <span className="hidden sm:inline">Сбросить Всё</span>
-            <span className="sm:hidden">Всё</span>
-          </button>
-        </div>
-      </div>
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="w-full">
-          <h3 className="text-lg sm:text-xl font-semibold mb-3">
-            Текущее Состояние Кассы
+      {/* Сообщение если касс нет */}
+      {!hasCashDesks && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-6 text-center">
+          <div className="text-blue-600 mb-4">
+            <svg
+              className="w-16 h-16 mx-auto mb-4"
+              fill="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" />
+            </svg>
+          </div>
+          <h3 className="text-xl font-bold text-blue-800 mb-2">
+            Добро пожаловать в систему обменника!
           </h3>
-          <div className="border rounded-lg overflow-hidden bg-white shadow-sm">
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-3 sm:px-4 py-3 text-left text-xs sm:text-sm font-medium text-gray-700">
-                      Валюта
-                    </th>
-                    <th className="px-3 sm:px-4 py-3 text-right text-xs sm:text-sm font-medium text-gray-700">
-                      Кол-во
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y">
-                  {cashStatus.cash &&
-                  Object.entries(cashStatus.cash).length > 0 ? (
-                    Object.entries(cashStatus.cash).map(
-                      ([currency, amount]) => (
-                        <tr key={currency} className="hover:bg-gray-50">
-                          <td className="px-3 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm font-medium">
-                            {currency}
-                          </td>
-                          <td className="px-3 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm text-right">
-                            {Number(amount).toFixed(2)}
+          <p className="text-blue-700 mb-4">
+            Для начала работы создайте первую кассу в разделе "Кассы"
+          </p>
+          <p className="text-sm text-blue-600">
+            После создания кассы вам станут доступны функции управления
+            транзакциями, просмотра истории операций, фиат лотов и PnL матчей.
+          </p>
+        </div>
+      )}
+
+      {/* Основной контент показывается только если есть кассы */}
+      {hasCashDesks && (
+        <>
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+            <div>
+              <h2 className="text-xl sm:text-2xl font-bold">Обзор Системы</h2>
+              {!selectedCashDeskId && !isAggregateView && (
+                <p className="text-yellow-600 text-sm mt-1">
+                  ⚠️ Выберите кассу для просмотра данных
+                </p>
+              )}
+              {isAggregateView && (
+                <p className="text-blue-600 text-sm mt-1">
+                  📊 Агрегированные данные по всем кассам
+                </p>
+              )}
+              {selectedCashDeskId && !isAggregateView && selectedCashDesk && (
+                <p className="text-green-600 text-sm mt-1">
+                  🏪 Касса: {selectedCashDesk.name}
+                </p>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-2 w-full sm:w-auto">
+              <button
+                onClick={fetchData}
+                disabled={loading}
+                className="flex items-center justify-center gap-1.5 px-3 sm:px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50 text-sm sm:text-base flex-1 sm:flex-none min-h-[40px]"
+              >
+                <RefreshCwIcon
+                  size={16}
+                  className={loading ? 'animate-spin' : ''}
+                />
+                <span>Обновить</span>
+              </button>
+              <button
+                onClick={handleReset}
+                className="flex items-center justify-center gap-1.5 px-3 sm:px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 text-sm sm:text-base flex-1 sm:flex-none min-h-[40px]"
+              >
+                <TrashIcon size={16} />
+                <span className="hidden sm:inline">Сбросить Кассу</span>
+                <span className="sm:hidden">Касса</span>
+              </button>
+              <button
+                onClick={handleResetAllData}
+                className="flex items-center justify-center gap-1.5 px-3 sm:px-4 py-2 bg-red-700 text-white rounded hover:bg-red-800 text-sm sm:text-base flex-1 sm:flex-none min-h-[40px]"
+              >
+                <TrashIcon size={16} />
+                <span className="hidden sm:inline">Сбросить Всё</span>
+                <span className="sm:hidden">Всё</span>
+              </button>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="w-full">
+              <h3 className="text-lg sm:text-xl font-semibold mb-3">
+                Текущее Состояние Кассы
+              </h3>
+              <div className="border rounded-lg overflow-hidden bg-white shadow-sm">
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-3 sm:px-4 py-3 text-left text-xs sm:text-sm font-medium text-gray-700">
+                          Валюта
+                        </th>
+                        <th className="px-3 sm:px-4 py-3 text-right text-xs sm:text-sm font-medium text-gray-700">
+                          Кол-во
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {cashStatus.cash &&
+                      Object.entries(cashStatus.cash).length > 0 ? (
+                        Object.entries(cashStatus.cash).map(
+                          ([currency, amount]) => (
+                            <tr key={currency} className="hover:bg-gray-50">
+                              <td className="px-3 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm font-medium">
+                                {currency}
+                              </td>
+                              <td className="px-3 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm text-right">
+                                {Number(amount).toFixed(2)}
+                              </td>
+                            </tr>
+                          )
+                        )
+                      ) : (
+                        <tr>
+                          <td
+                            colSpan={2}
+                            className="px-3 sm:px-4 py-6 sm:py-8 text-center text-xs sm:text-sm text-gray-500"
+                          >
+                            Нет данных о кассе
                           </td>
                         </tr>
-                      )
-                    )
-                  ) : (
-                    <tr>
-                      <td
-                        colSpan={2}
-                        className="px-3 sm:px-4 py-6 sm:py-8 text-center text-xs sm:text-sm text-gray-500"
-                      >
-                        Нет данных о кассе
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-
-        {/* Реализованная Прибыль */}
-        <div className="w-full">
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-3">
-            <h3 className="text-lg sm:text-xl font-semibold">
-              Реализованная Прибыль
-            </h3>
-          </div>
-
-          <div className="border rounded-lg overflow-hidden bg-white shadow-sm">
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-3 sm:px-4 py-3 text-left text-xs sm:text-sm font-medium text-gray-700">
-                      Валюта
-                    </th>
-                    <th className="px-3 sm:px-4 py-3 text-right text-xs sm:text-sm font-medium text-gray-700">
-                      Прибыль
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y">
-                  {realizedProfit.profits_by_currency &&
-                  Object.entries(realizedProfit.profits_by_currency).length >
-                    0 ? (
-                    Object.entries(realizedProfit.profits_by_currency).map(
-                      ([currency, profit]) =>
-                        currency !== '' && (
-                          <tr key={currency} className="hover:bg-gray-50">
-                            <td className="px-3 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm font-medium">
-                              {currency}
-                            </td>
-                            <td
-                              className={`px-3 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm text-right font-medium ${
-                                Number(profit) >= 0
-                                  ? 'text-green-600'
-                                  : 'text-red-600'
-                              }`}
-                            >
-                              {Number(profit).toFixed(2)}
-                            </td>
-                          </tr>
-                        )
-                    )
-                  ) : (
-                    <tr>
-                      <td
-                        colSpan={2}
-                        className="px-3 sm:px-4 py-6 sm:py-8 text-center text-xs sm:text-sm text-gray-500"
-                      >
-                        Нет данных о реализованной прибыли
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Новая секция - Сводка по фиатным лотам */}
-      {Object.keys(profitSummaries).length > 0 && (
-        <div className="mt-8">
-          <h3 className="text-lg sm:text-xl font-semibold mb-4">
-            Сводка по фиатным лотам
-          </h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {Object.entries(profitSummaries).map(([currency, summary]) => (
-              <div
-                key={currency}
-                className="border rounded-lg bg-white shadow-sm p-4"
-              >
-                <h4 className="font-semibold text-lg mb-3 text-center">
-                  {currency}
-                </h4>
-
-                <div className="space-y-3">
-                  <div className="bg-green-50 p-3 rounded border border-green-200">
-                    <div className="text-sm text-green-800 font-medium">
-                      Реализованная прибыль
-                    </div>
-                    <div className="text-lg font-semibold text-green-900">
-                      {summary.realized_profit.fiat.toFixed(2)} {currency}
-                    </div>
-                    <div className="text-xs text-green-700">
-                      ≈ {summary.realized_profit.usdt.toFixed(4)} USDT
-                    </div>
-                  </div>
-
-                  <div className="bg-blue-50 p-3 rounded border border-blue-200">
-                    <div className="text-sm text-blue-800 font-medium">
-                      Остатки лотов
-                    </div>
-                    <div className="text-lg font-semibold text-blue-900">
-                      {summary.remaining_lots.total_value.toFixed(2)} {currency}
-                    </div>
-                    <div className="text-xs text-blue-700">
-                      {summary.remaining_lots.count} активных лотов
-                    </div>
-                    {summary.rates_info && summary.remaining_lots.count > 0 && (
-                      <div className="text-xs text-blue-900">
-                        ср: {summary.rates_info.avg_rate.toFixed(5)}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="bg-purple-50 p-3 rounded border border-purple-200">
-                    <div className="text-sm text-purple-800 font-medium">
-                      Транзакции
-                    </div>
-                    <div className="text-lg font-semibold text-purple-900">
-                      {summary.transactions.buy_count +
-                        summary.transactions.sell_count}
-                    </div>
-                    <div className="text-xs text-purple-700">
-                      {summary.transactions.buy_count} покупок,{' '}
-                      {summary.transactions.sell_count} продаж
-                    </div>
-                  </div>
+                      )}
+                    </tbody>
+                  </table>
                 </div>
               </div>
-            ))}
+            </div>
+
+            {/* Реализованная Прибыль */}
+            <div className="w-full">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-3">
+                <h3 className="text-lg sm:text-xl font-semibold">
+                  Реализованная Прибыль
+                </h3>
+              </div>
+
+              <div className="border rounded-lg overflow-hidden bg-white shadow-sm">
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-3 sm:px-4 py-3 text-left text-xs sm:text-sm font-medium text-gray-700">
+                          Валюта
+                        </th>
+                        <th className="px-3 sm:px-4 py-3 text-right text-xs sm:text-sm font-medium text-gray-700">
+                          Прибыль
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {realizedProfit.profits_by_currency &&
+                      Object.entries(realizedProfit.profits_by_currency)
+                        .length > 0 ? (
+                        Object.entries(realizedProfit.profits_by_currency).map(
+                          ([currency, profit]) =>
+                            currency !== '' && (
+                              <tr key={currency} className="hover:bg-gray-50">
+                                <td className="px-3 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm font-medium">
+                                  {currency}
+                                </td>
+                                <td
+                                  className={`px-3 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm text-right font-medium ${
+                                    Number(profit) >= 0
+                                      ? 'text-green-600'
+                                      : 'text-red-600'
+                                  }`}
+                                >
+                                  {Number(profit).toFixed(2)}
+                                </td>
+                              </tr>
+                            )
+                        )
+                      ) : (
+                        <tr>
+                          <td
+                            colSpan={2}
+                            className="px-3 sm:px-4 py-6 sm:py-8 text-center text-xs sm:text-sm text-gray-500"
+                          >
+                            Нет данных о реализованной прибыли
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
           </div>
-        </div>
+
+          {/* Новая секция - Сводка по фиатным лотам */}
+          {Object.keys(profitSummaries).length > 0 && (
+            <div className="mt-8">
+              <h3 className="text-lg sm:text-xl font-semibold mb-4">
+                Сводка по фиатным лотам
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                {Object.entries(profitSummaries).map(([currency, summary]) => (
+                  <div
+                    key={currency}
+                    className="border rounded-lg bg-white shadow-sm p-4"
+                  >
+                    <h4 className="font-semibold text-lg mb-3 text-center">
+                      {currency}
+                    </h4>
+
+                    <div className="space-y-3">
+                      <div className="bg-green-50 p-3 rounded border border-green-200">
+                        <div className="text-sm text-green-800 font-medium">
+                          Реализованная прибыль
+                        </div>
+                        <div className="text-lg font-semibold text-green-900">
+                          {summary.realized_profit.fiat.toFixed(2)} {currency}
+                        </div>
+                        <div className="text-xs text-green-700">
+                          ≈ {summary.realized_profit.usdt.toFixed(4)} USDT
+                        </div>
+                      </div>
+
+                      <div className="bg-blue-50 p-3 rounded border border-blue-200">
+                        <div className="text-sm text-blue-800 font-medium">
+                          Остатки лотов
+                        </div>
+                        <div className="text-lg font-semibold text-blue-900">
+                          {summary.remaining_lots.total_value.toFixed(2)}{' '}
+                          {currency}
+                        </div>
+                        <div className="text-xs text-blue-700">
+                          {summary.remaining_lots.count} активных лотов
+                        </div>
+                        {summary.rates_info &&
+                          summary.remaining_lots.count > 0 && (
+                            <div className="text-xs text-blue-900">
+                              ср: {summary.rates_info.avg_rate.toFixed(5)}
+                            </div>
+                          )}
+                      </div>
+
+                      <div className="bg-purple-50 p-3 rounded border border-purple-200">
+                        <div className="text-sm text-purple-800 font-medium">
+                          Транзакции
+                        </div>
+                        <div className="text-lg font-semibold text-purple-900">
+                          {summary.transactions.buy_count +
+                            summary.transactions.sell_count}
+                        </div>
+                        <div className="text-xs text-purple-700">
+                          {summary.transactions.buy_count} покупок,{' '}
+                          {summary.transactions.sell_count} продаж
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   )
