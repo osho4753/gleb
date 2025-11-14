@@ -686,20 +686,42 @@ export function TransactionsManager({
                         💰 Детали транзакции
                       </h4>
                       <div className="grid grid-cols-2 gap-2 text-xs">
-                        <div>
-                          Получаем:{' '}
-                          <span className="font-semibold text-green-600">
-                            +{preview.transaction_preview?.amount_from}{' '}
-                            {preview.transaction_preview?.from_asset}
-                          </span>
-                        </div>
-                        <div>
-                          Отдаем:{' '}
-                          <span className="font-semibold text-red-600">
-                            -{preview.transaction_preview?.amount_to_final}{' '}
-                            {preview.transaction_preview?.to_asset}
-                          </span>
-                        </div>
+                        {preview.transaction_preview?.type ===
+                        'fiat_to_fiat' ? (
+                          <>
+                            <div>
+                              Получаем:{' '}
+                              <span className="font-semibold text-green-600">
+                                +{preview.transaction_preview?.amount_to_final}{' '}
+                                {preview.transaction_preview?.to_asset}
+                              </span>
+                            </div>
+                            <div>
+                              Отдаем:{' '}
+                              <span className="font-semibold text-red-600">
+                                -{preview.transaction_preview?.amount_from}{' '}
+                                {preview.transaction_preview?.from_asset}
+                              </span>
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <div>
+                              Получаем:{' '}
+                              <span className="font-semibold text-green-600">
+                                +{preview.transaction_preview?.amount_from}{' '}
+                                {preview.transaction_preview?.from_asset}
+                              </span>
+                            </div>
+                            <div>
+                              Отдаем:{' '}
+                              <span className="font-semibold text-red-600">
+                                -{preview.transaction_preview?.amount_to_final}{' '}
+                                {preview.transaction_preview?.to_asset}
+                              </span>
+                            </div>
+                          </>
+                        )}
                         <div>
                           Курс:{' '}
                           <span className="font-semibold">
