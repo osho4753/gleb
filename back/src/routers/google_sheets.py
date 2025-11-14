@@ -103,7 +103,7 @@ def enable_google_sheets(
             
             # Синхронизируем все существующие данные
             if transactions or cash_status or realized_profits:
-                sheets_manager.sync_all_data(spreadsheet_id, transactions, cash_status, realized_profits, tenant_id)
+                sheets_manager.sync_all_data(tenant_id)
                 sync_message = f" Синхронизировано: {len(transactions)} транзакций, {len(cash_status)} валют в кассе, {len(realized_profits)} валют прибыли."
             else:
                 sync_message = " Новая таблица готова к использованию."
@@ -184,7 +184,7 @@ def re_enable_google_sheets(tenant_id: str = Depends(get_current_tenant)):
             realized_profits = {r["_id"]: r["total_realized_profit"] for r in profit_results if r["_id"]}
             
             # Синхронизируем все существующие данные
-            sheets_manager.sync_all_data(settings["spreadsheet_id"], transactions, cash_status, realized_profits, tenant_id)
+            sheets_manager.sync_all_data(tenant_id)
             sync_message = f" Автоматически синхронизировано: {len(transactions)} транзакций, {len(cash_status)} валют в кассе, {len(realized_profits)} валют прибыли."
                 
         except Exception as sync_error:
@@ -220,37 +220,21 @@ def disconnect_google_sheets(tenant_id: str = Depends(get_current_tenant)):
 
 
 @router.post("/sync-all")
-def sync_all_data(tenant_id: str = Depends(get_current_tenant)):
-    """Синхронизировать все существующие данные с Google Sheets"""
-    # Проверяем что интеграция включена
+def sync_all_data_endpoint(tenant_id: str = Depends(get_current_tenant)): # Переименовал, чтобы не путаться
+    """
+    (ПЕРЕРАБОТАНО)
+    Синхронизировать все существующие данные с Google Sheets, используя новую модель.
+    """
     settings = db.google_sheets_settings.find_one({"tenant_id": tenant_id})
     if not settings or not settings.get("is_enabled"):
         raise HTTPException(status_code=400, detail="Google Sheets integration is not enabled")
     
     try:
-        # Получаем все транзакции для данного tenant
-        transactions = list(db.transactions.find({"tenant_id": tenant_id}))
-        
-        # Получаем данные кассы
-        cash_items = list(db.cash.find({"tenant_id": tenant_id}, {"_id": 0}))
-        cash_status = {item["asset"]: item["balance"] for item in cash_items}
-        
-        # Получаем данные прибыли
-        pipeline = [
-            {"$match": {"tenant_id": tenant_id}},
-            {"$group": {"_id": "$profit_currency", "total_realized_profit": {"$sum": "$realized_profit"}}}
-        ]
-        profit_results = list(db.transactions.aggregate(pipeline))
-        realized_profits = {r["_id"]: r["total_realized_profit"] for r in profit_results if r["_id"]}
-        
-        # Очищаем таблицу и заполняем заново
-        sheets_manager.sync_all_data(settings["spreadsheet_id"], transactions, cash_status, realized_profits, tenant_id)
+        # Вызываем НОВУЮ функцию
+        sheets_manager.sync_all_data_for_tenant(tenant_id)
         
         return {
-            "message": "All data synchronized successfully",
-            "synced_transactions": len(transactions),
-            "synced_cash_assets": len(cash_status),
-            "synced_profit_currencies": len(realized_profits),
+            "message": "All data synchronization successfully requested",
             "tenant_id": tenant_id
         }
         
@@ -260,7 +244,6 @@ def sync_all_data(tenant_id: str = Depends(get_current_tenant)):
             status_code=500,
             detail=f"Failed to synchronize data: {str(e)}"
         )
-
 
 @router.get("/instructions")
 def get_setup_instructions():
@@ -391,11 +374,7 @@ def sync_aggregate_report(tenant_id: str = Depends(get_current_tenant)):
             })
         
         # Создаем агрегированный отчет
-        sheets_manager.sync_aggregate_report(
-            settings["spreadsheet_id"],
-            all_cash_desks_data,
-            tenant_id
-        )
+        sheets_manager.sync_aggregate_report(tenant_id)
         
         return {
             "message": f"Агрегированный отчет по {len(cash_desks)} кассам создан",

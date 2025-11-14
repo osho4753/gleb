@@ -121,10 +121,20 @@ def reset_all_data(tenant_id: str = Depends(get_current_tenant)):
     # Очищаем историю снимков для данного tenant
     history_result = history_manager.clear_history(tenant_id)
     
-    # Очищаем Google Sheets
+    # Очищаем Google Sheets: удаляем все листы, оставляем только один пустой 'Лист1'
     try:
-        # Обновляем сводный лист (пустой)
-        sheets_manager.update_cash_and_profits({}, {}, tenant_id)
+        settings = sheets_manager.get_tenant_settings(tenant_id)
+        if settings and settings.get("spreadsheet_id"):
+            spreadsheet = sheets_manager.client.open_by_key(settings["spreadsheet_id"])
+            worksheets = spreadsheet.worksheets()
+            # Удаляем все листы
+            spreadsheet.add_worksheet(title="New", rows=1000, cols=20)
+
+            for ws in worksheets:
+                if ws.title != "New":
+                    spreadsheet.del_worksheet(ws)
+            # Создаем один пустой лист 'New'
+            print(f"✅ All sheets cleared for tenant {tenant_id}, only 'New' left.")
     except Exception as e:
         print(f"Failed to clear Google Sheets: {e}")
     
@@ -158,6 +168,13 @@ def undo_last_operation(cash_desk_id: str = None, tenant_id: str = Depends(get_c
             raise HTTPException(status_code=500, detail="Failed to restore snapshot")
         
         cash_desc = f" (desk: {cash_desk_id})" if cash_desk_id else " (all desks)"
+        if cash_desk_id:
+            try:
+                sheets_manager.resync_cash_desk(cash_desk_id, tenant_id)
+                print(f"Google Sheets resync triggered for cash desk {cash_desk_id}")
+            except Exception as e:
+                print(f"Failed to resync Google Sheets after undo: {e}")
+        
         return {
             "message": f"Operation undone successfully for tenant {tenant_id}{cash_desc}",
             "restored_operation": snapshot.get("operation_type"),

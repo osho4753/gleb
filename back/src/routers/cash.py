@@ -189,14 +189,22 @@ def deposit_to_cash(
     # Try to write to Google Sheets (don't fail the request if Sheets is down)
     try:
         # Получаем имя кассы
-        cash_desk_name = "Общая касса"
-        if deposit.cash_desk_id:
-            cash_desk = db.cash_desks.find_one({"id": deposit.cash_desk_id, "tenant_id": tenant_id})
+        cash_desk_name = "Unknown" # Дефолтное значение
+        if cash_desk_id:
+            # Сначала попробуем найти по _id
+            cash_desk = db.cash_desks.find_one({"_id": cash_desk_id, "tenant_id": tenant_id})
             if cash_desk:
                 cash_desk_name = cash_desk["name"]
+            else:
+                # Пробуем также поиск по id
+                cash_desk = db.cash_desks.find_one({"id": cash_desk_id, "tenant_id": tenant_id})
+                if cash_desk:
+                    cash_desk_name = cash_desk["name"]
+                else:
+                    print(f"⚠️ Cash desk {cash_desk_id} not found for tenant {tenant_id}")
         
-        # Добавляем транзакцию в плоский лист
-        sheets_manager.add_transaction(deposit_transaction, tenant_id, deposit.cash_desk_id)
+        # Добавляем транзакцию в лист конкретной кассы
+        sheets_manager.add_transaction(deposit_transaction, tenant_id=tenant_id, cash_desk_id=cash_desk_id)
         
         # Обновляем баланс для конкретной кассы и валюты
         sheets_manager.update_balance_for_desk(cash_desk_name, deposit.asset, new_balance, tenant_id)
@@ -277,7 +285,7 @@ def withdraw_from_cash(withdrawal: CashWithdrawal, cash_desk_id: str, tenant_id:
     try:
         # Получаем имя кассы
         cash_desk_name = cash_desk.name
-        sheets_manager.add_transaction(withdrawal_transaction, tenant_id, cash_desk_id)
+        sheets_manager.add_transaction(withdrawal_transaction, tenant_id=tenant_id, cash_desk_id=cash_desk_id)
         
         sheets_manager.update_balance_for_desk(cash_desk_name, withdrawal.asset, new_balance, tenant_id)
     except Exception as e:

@@ -449,12 +449,11 @@ def create_transaction(
     tx_data["_id"] = result.inserted_id
     
     # Добавляем в Google Sheets
-    sheets_manager.add_transaction(tx_data, tenant_id, cash_desk_id)
+    sheets_manager.add_transaction(tx_data, tenant_id=tenant_id, cash_desk_id=cash_desk_id)
     
     # Обновляем плоские листы кассы и прибыли
     try:
         # Получаем имя кассы
-        cash_desk_name = "Общая касса"
         if cash_desk_id:
             cash_desk = db.cash_desks.find_one({"id": cash_desk_id, "tenant_id": tenant_id})
             if cash_desk:
@@ -901,8 +900,12 @@ def update_transaction(transaction_id: str, update_data: TransactionUpdate, tena
             updated_tx["_id"] = str(updated_tx["_id"])
             
             # Обновляем в Google Sheets
-            sheets_manager.update_transaction(transaction_id, updated_tx, tenant_id)
-            
+            sheets_manager.update_transaction(
+                transaction_id, 
+                updated_tx, 
+                tenant_id,
+                cash_desk_id=existing_tx.get("cash_desk_id") # Получаем ID кассы из existing_tx
+            )            
             # Обновляем сводный лист
             try:
                 cash_items = list(db.cash.find({"tenant_id": tenant_id}, {"_id": 0}))
@@ -952,7 +955,11 @@ def delete_transaction(transaction_id: str, cash_desk_id: str, tenant_id: str = 
         result = db.transactions.delete_one({"_id": ObjectId(transaction_id)})
         if result.deleted_count > 0:
             # Удаляем из Google Sheets
-            sheets_manager.delete_transaction(transaction_id, tenant_id)
+            sheets_manager.delete_transaction(
+                transaction_id, 
+                tenant_id,
+                cash_desk_id=existing_tx.get("cash_desk_id") # Получаем ID кассы из existing_tx
+            )
             
             # Обновляем сводный лист
             try:
