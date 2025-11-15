@@ -26,7 +26,7 @@ class CashDesk(BaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow)
     is_active: bool = Field(default=True, description="Whether cash desk is active")
     deleted_at: Optional[datetime] = Field(default=None, description="When cash desk was deleted")
-    
+    telegram_chat_id: Optional[str] = Field(None, description="ID чата Telegram для отчетов этой кассы")
     class Config:
         validate_by_name = True
         populate_by_name = True
@@ -37,7 +37,7 @@ class CreateCashDesk(BaseModel):
 class UpdateCashDesk(BaseModel):
     name: Optional[str] = None
     is_active: Optional[bool] = None
-
+    telegram_chat_id: Optional[str] = Field(None, description="ID чата Telegram для отчетов этой кассы")
 class Transaction(BaseModel):
     tenant_id: Optional[str] = None  # Tenant isolation field (deprecated, use cash_desk_id)
     cash_desk_id: Optional[str] = None  # Фаза 2: Cash desk isolation field

@@ -1,9 +1,12 @@
 """
 Роутер для операций с кассой
 """
-from fastapi import APIRouter, HTTPException, Depends
+import os
+from fastapi import APIRouter, HTTPException, Depends,BackgroundTasks
 from pydantic import BaseModel
 from datetime import datetime
+
+from ..telegram_manager import telegram_manager
 from ..db import db
 from ..models import CashDeposit, CashWithdrawal
 from ..constants import CURRENCIES
@@ -124,6 +127,7 @@ def delete_cash_asset(asset: str,cash_desk_id: str, tenant_id: str = Depends(get
 def deposit_to_cash(
     deposit: CashDeposit, 
     cash_desk_id: str,
+    background_tasks: BackgroundTasks,
     tenant_id: str = Depends(get_current_tenant)
 ):
     """Пополнение кассы с сохранением как транзакции для конкретной кассы"""
@@ -188,7 +192,28 @@ def deposit_to_cash(
 
     # Try to write to Google Sheets (don't fail the request if Sheets is down)
     try:
+        chat_id=os.getenv("TELEGRAM_CHAT_ID")
         # Получаем имя кассы
+        if chat_id:
+            # 2. Получаем новый баланс
+            balances = {}
+            new_cash_item = db.cash.find_one({"asset": deposit.asset, "cash_desk_id": cash_desk_id})
+            if new_cash_item:
+                balances[deposit.asset] = new_cash_item.get("balance", 0)
+
+            # 3. Форматируем сообщение
+            message = telegram_manager.format_transaction_message(
+                cash_desk.name, 
+                deposit_transaction,
+                balances
+            )
+            
+            # 4. Добавляем в очередь
+            background_tasks.add_task(
+                telegram_manager.send_message_async,
+                chat_id,
+                message
+            )
         cash_desk_name = "Unknown" # Дефолтное значение
         if cash_desk_id:
             # Сначала попробуем найти по _id
